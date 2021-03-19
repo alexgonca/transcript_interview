@@ -13,9 +13,6 @@ import csv
 from datetime import timedelta
 
 
-# todo add keywords
-# todo add alternatives
-# todo check if there is diarization for IBM Watson in the future
 class Transcript:
     INTERVIEWEE = "interviewee"
     INTERVIEWER = "interviewer"
@@ -104,7 +101,7 @@ class Transcript:
                 print('Data was already retrieved from service {service}. Using transcript from database.'.format(service=service))
                 transcript = json.loads(data[0])
             else:
-                transcript = {}
+                print(f"Begin conversion for {service}.")
                 if service == "microsoft":
                     transcript = microsoft_transcribe.retrieve_transcript(filepath=filepath,
                                                                           language=config['language'],
@@ -191,10 +188,12 @@ class Transcript:
             database.close()
 
     def retrieve_transcript(self, config, microsoft=False, google=False, ibm=False, aws=False):
+        print('Converting audio to WAV.')
         Path("./audio").mkdir(parents=True, exist_ok=True)
         destination = "./audio/{label}_{speaker}.wav".format(label=config['label'], speaker=config['speaker'])
         sound = AudioSegment.from_file(config['filepath'], Path(config['filepath']).suffix[1:])
         sound.export(destination, format="wav")
+        print('Finish converting.')
 
         try:
             if microsoft:
@@ -211,6 +210,9 @@ class Transcript:
     def export_csv(self, label, interval_in_milliseconds=5000):
         database = sqlite3.connect(str(self.db_name))
 
+        filename = Path(Path(__file__).parent, 'csv', f'{label}-{interval_in_milliseconds}.csv')
+        Path(filename).parent.mkdir(parents=True, exist_ok=True)
+
         cursor = database.cursor()
         cursor.execute("SELECT distinct service from word WHERE label = ?", (label,))
         services = []
@@ -222,7 +224,7 @@ class Transcript:
         data = cursor.fetchone()
         max_time = data[0]
 
-        with open(f'./{label}-{interval_in_milliseconds}.csv', 'w', newline='', encoding='utf8') as csvfile:
+        with open(str(filename), 'w', newline='', encoding='utf8') as csvfile:
             fieldnames = ['start_time'] + services
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
