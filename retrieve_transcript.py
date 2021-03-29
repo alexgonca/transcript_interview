@@ -11,6 +11,9 @@ import configparser
 import traceback
 import csv
 from datetime import timedelta
+import boto3
+import botocore
+import uuid
 
 
 class Transcript:
@@ -78,13 +81,30 @@ class Transcript:
     """
 
     def __init__(self):
+        print("Download database if exists!")
         self.db_name = Path(Path(__file__).parent, 'db', 'interviews.sqlite')
         Path(self.db_name).parent.mkdir(parents=True, exist_ok=True)
-        database = sqlite3.connect(str(self.db_name), isolation_level=None)
-        database.execute(self.__CREATE_TABLE_INTERVIEW)
-        database.execute(self.__CREATE_TABLE_ERROR)
-        database.execute(self.__CREATE_TABLE_WORD)
-        database.close()
+
+        config_file = configparser.ConfigParser()
+        config_file.read('config.ini')
+        session = boto3.Session(
+            aws_access_key_id=config_file['aws']['access_key'],
+            aws_secret_access_key=config_file['aws']['secret_key'],
+            region_name=config_file['aws']['region']
+        )
+        s3_resource = session.resource('s3')
+        bucket = s3_resource.Bucket(config_file['aws']['s3_bucket'])
+        try:
+            bucket.download_file('database/interviews.sqlite', str(self.db_name))
+        except botocore.exceptions.ClientError as e:
+            if e.response['Error']['Code'] == "404":
+                database = sqlite3.connect(str(self.db_name), isolation_level=None)
+                database.execute(self.__CREATE_TABLE_INTERVIEW)
+                database.execute(self.__CREATE_TABLE_ERROR)
+                database.execute(self.__CREATE_TABLE_WORD)
+                database.close()
+            else:
+                raise
 
     def inner_retrieve_transcript(self, config, filepath, service):
         database = sqlite3.connect(str(self.db_name))
@@ -188,14 +208,28 @@ class Transcript:
             database.close()
 
     def retrieve_transcript(self, config, microsoft=False, google=False, ibm=False, aws=False):
-        print('Converting audio to WAV.')
+        print("Download file")
+        config_file = configparser.ConfigParser()
+        config_file.read('config.ini')
+        session = boto3.Session(
+            aws_access_key_id=config_file['aws']['access_key'],
+            aws_secret_access_key=config_file['aws']['secret_key'],
+            region_name=config_file['aws']['region']
+        )
+        s3_resource = session.resource('s3')
+        bucket = s3_resource.Bucket(config_file['aws']['s3_bucket'])
+        extension = Path(config['s3_key']).suffix[1:]
+        temp_file = Path(f"./audio/{uuid.uuid4()}.{extension}")
         Path("./audio").mkdir(parents=True, exist_ok=True)
-        destination = "./audio/{label}_{speaker}.wav".format(label=config['label'], speaker=config['speaker'])
-        sound = AudioSegment.from_file(config['filepath'], Path(config['filepath']).suffix[1:])
-        sound.export(destination, format="wav")
-        print('Finish converting.')
+        bucket.download_file(config['s3_key'], str(temp_file))
 
         try:
+            print('Converting audio to WAV.')
+            destination = "./audio/{label}_{speaker}.wav".format(label=config['label'], speaker=config['speaker'])
+            sound = AudioSegment.from_file(str(temp_file), extension)
+            sound.export(destination, format="wav")
+            print('Finish converting.')
+
             if microsoft:
                 self.inner_retrieve_transcript(config=config, filepath=destination, service="microsoft")
             if google:
@@ -248,3 +282,17 @@ class Transcript:
                 writer.writerow(new_row)
 
         database.close()
+
+    def upload_database(self):
+        print("Upload database!")
+        config_file = configparser.ConfigParser()
+        config_file.read('config.ini')
+        session = boto3.Session(
+            aws_access_key_id=config_file['aws']['access_key'],
+            aws_secret_access_key=config_file['aws']['secret_key'],
+            region_name=config_file['aws']['region']
+        )
+        s3_resource = session.resource('s3')
+        bucket = s3_resource.Bucket(config_file['aws']['s3_bucket'])
+        bucket.upload_file(str(self.db_name), 'database/interviews.sqlite')
+        shutil.rmtree("./db")
