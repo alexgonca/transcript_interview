@@ -123,7 +123,9 @@ class TranscribeCompleteWaiter(CustomWaiter):
             'TranscribeComplete', 'GetTranscriptionJob',
             'TranscriptionJob.TranscriptionJobStatus',
             {'COMPLETED': WaitState.SUCCESS, 'FAILED': WaitState.FAILURE},
-            client)
+            client,
+            max_tries=500
+        )
 
     def wait(self, job_name):
         self._wait(TranscriptionJobName=job_name)

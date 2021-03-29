@@ -153,13 +153,17 @@ def parse_words(transcript, speaker):
             else:
                 interviewee = 1
         max_confidence = 0
-        for i in range(1, len(phrase['nBest'])):
-            if phrase['nBest'][i]['confidence'] > phrase['nBest'][max_confidence]['confidence']:
-                max_confidence = i
-        for word in phrase['nBest'][max_confidence]['words']:
+        # for i in range(1, len(phrase['nBest'])):
+        #     if phrase['nBest'][i]['confidence'] > phrase['nBest'][max_confidence]['confidence']:
+        #         max_confidence = i
+        phrase_with_punctuation = phrase['nBest'][max_confidence].get('display', '').split()
+        phrase_without_punctuation = phrase['nBest'][max_confidence].get('words', [])
+        if len(phrase_with_punctuation) > len(phrase_without_punctuation):
+            raise TypeError(f"with punctuation: {len(phrase_with_punctuation)} - without punctuation: {len(phrase_without_punctuation)} - Phrase: {phrase['nBest'][max_confidence].get('display', '')}")
+        for punctuated_word, word in zip(phrase_with_punctuation, phrase_without_punctuation):
             words.append({
                 'service': 'microsoft',
-                'word': word['word'],
+                'word': punctuated_word,
                 'start_time': int(word['offsetInTicks'] / 10000),
                 'end_time': int(word['offsetInTicks'] / 10000) + int(word['durationInTicks'] / 10000),
                 'interviewee': interviewee
