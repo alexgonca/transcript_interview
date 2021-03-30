@@ -2,6 +2,7 @@ from pydub import AudioSegment
 import sqlite3
 from pathlib import Path
 import shutil
+import bz2
 import google_transcribe
 import microsoft_transcribe
 import ibm_transcribe
@@ -14,6 +15,28 @@ from datetime import timedelta
 import boto3
 import botocore
 import uuid
+import os
+
+
+def decompress(filename, delete_original=True):
+    new_filepath = filename[:-4]
+    with bz2.BZ2File(filename, 'rb') as input_file:
+        with open(new_filepath, 'wb') as output_file:
+            shutil.copyfileobj(input_file, output_file)
+    if delete_original:
+        os.remove(filename)
+    return new_filepath
+
+
+def compress(filename, delete_original=True, compress_level=9):
+    filename_bz2 = Path(Path(__file__).parent, 'tmp', "{}.bz2".format(filename))
+    print(f"Compress file {filename}.")
+    with open(filename, 'rb') as input_file:
+        with bz2.BZ2File(filename_bz2, 'wb', compresslevel=compress_level) as output_file:
+            shutil.copyfileobj(input_file, output_file)
+    if delete_original:
+        os.remove(filename)
+    return filename_bz2
 
 
 class Transcript:
@@ -81,6 +104,7 @@ class Transcript:
     """
 
     def __init__(self):
+        self.changed_database = False
         print("Download database if exists!")
         self.db_name = Path(Path(__file__).parent, 'db', 'interviews.sqlite')
         Path(self.db_name).parent.mkdir(parents=True, exist_ok=True)
@@ -95,7 +119,8 @@ class Transcript:
         s3_resource = session.resource('s3')
         bucket = s3_resource.Bucket(config_file['aws']['s3_bucket'])
         try:
-            bucket.download_file('database/interviews.sqlite', str(self.db_name))
+            bucket.download_file('database/interviews.sqlite.bz2', str(self.db_name)+".bz2")
+            decompress(str(self.db_name)+".bz2")
         except botocore.exceptions.ClientError as e:
             if e.response['Error']['Code'] == "404":
                 database = sqlite3.connect(str(self.db_name), isolation_level=None)
@@ -158,6 +183,7 @@ class Transcript:
                                                            json.dumps(config),
                                                            json.dumps(transcript)))
                 database.execute('COMMIT')
+                self.changed_database = True
                 print('Success transcript! {service}'.format(service=service))
 
             if config['speaker'] == self.BOTH:
@@ -195,6 +221,7 @@ class Transcript:
                                                               word['end_time'],
                                                               word['interviewee']))
                     database.execute('COMMIT')
+                    self.changed_database = True
                     print('Success parsing! {service}'.format(service=service))
         except:
             print('Error! {service}'.format(service=service))
@@ -204,6 +231,7 @@ class Transcript:
                                                    json.dumps(config),
                                                    traceback.format_exc()))
             database.execute('COMMIT')
+            self.changed_database = True
         finally:
             database.close()
 
@@ -242,6 +270,7 @@ class Transcript:
             shutil.rmtree("./audio")
 
     def export_csv(self, label, interval_in_milliseconds=5000):
+        print(f"Export CSV: {label}")
         database = sqlite3.connect(str(self.db_name))
 
         filename = Path(Path(__file__).parent, 'csv', f'{label}-{interval_in_milliseconds}.csv')
@@ -282,17 +311,20 @@ class Transcript:
                 writer.writerow(new_row)
 
         database.close()
+        print("Exported!")
 
     def upload_database(self):
-        print("Upload database!")
-        config_file = configparser.ConfigParser()
-        config_file.read('config.ini')
-        session = boto3.Session(
-            aws_access_key_id=config_file['aws']['access_key'],
-            aws_secret_access_key=config_file['aws']['secret_key'],
-            region_name=config_file['aws']['region']
-        )
-        s3_resource = session.resource('s3')
-        bucket = s3_resource.Bucket(config_file['aws']['s3_bucket'])
-        bucket.upload_file(str(self.db_name), 'database/interviews.sqlite')
+        if self.changed_database:
+            print("Upload database!")
+            compress(str(self.db_name))
+            config_file = configparser.ConfigParser()
+            config_file.read('config.ini')
+            session = boto3.Session(
+                aws_access_key_id=config_file['aws']['access_key'],
+                aws_secret_access_key=config_file['aws']['secret_key'],
+                region_name=config_file['aws']['region']
+            )
+            s3_resource = session.resource('s3')
+            bucket = s3_resource.Bucket(config_file['aws']['s3_bucket'])
+            bucket.upload_file(str(self.db_name)+".bz2", 'database/interviews.sqlite.bz2')
         shutil.rmtree("./db")
