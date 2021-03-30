@@ -1,3 +1,3 @@
 # Some instructions
 
-- I have to use a t3.micro instance instead of t3a.nano because there was not enough memory to convert the audio.
+- I have to use a t3a.small instance instead of t3a.nano or t3a.micro because there was not enough memory to convert the audio.
