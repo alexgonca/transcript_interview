@@ -155,20 +155,19 @@ def parse_words(transcript, speaker):
                 interviewee = 0
             else:
                 interviewee = 1
-        max_confidence = 0
-        # for i in range(1, len(phrase['nBest'])):
-        #     if phrase['nBest'][i]['confidence'] > phrase['nBest'][max_confidence]['confidence']:
-        #         max_confidence = i
-        phrase_with_punctuation = phrase['nBest'][max_confidence].get('display', '').split()
-        phrase_without_punctuation = phrase['nBest'][max_confidence].get('words', [])
-        if len(phrase_with_punctuation) > len(phrase_without_punctuation):
-            raise TypeError(f"with punctuation: {len(phrase_with_punctuation)} - without punctuation: {len(phrase_without_punctuation)} - Phrase: {phrase['nBest'][max_confidence].get('display', '')}")
-        for punctuated_word, word in zip(phrase_with_punctuation, phrase_without_punctuation):
+        phrase_with_punctuation = phrase['nBest'][0].get('display', '').split()
+        duration_word = int( ( phrase['durationInTicks'] / 10000 ) // len(phrase_with_punctuation))
+        offset_word = int( phrase['offsetInTicks'] / 10000 )
+        end_phrase = offset_word + int( phrase['durationInTicks'] / 10000 )
+        for word in phrase_with_punctuation:
             words.append({
                 'service': 'microsoft',
-                'word': punctuated_word,
-                'start_time': int(word['offsetInTicks'] / 10000),
-                'end_time': int(word['offsetInTicks'] / 10000) + int(word['durationInTicks'] / 10000),
+                'word': word,
+                'start_time': offset_word,
+                'end_time': offset_word + duration_word - 1,
                 'interviewee': interviewee
             })
+            offset_word = offset_word + duration_word
+        if len(words) > 0:
+            words[-1]['end_time'] = end_phrase
     return words
