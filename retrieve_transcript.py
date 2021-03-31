@@ -253,9 +253,9 @@ class Transcript:
 
         try:
             print('Converting audio to WAV.')
-            destination = "./audio/{label}_{speaker}.wav".format(label=config['label'], speaker=config['speaker'])
             sound = AudioSegment.from_file(str(temp_file), extension)
             sound = sound.set_channels(1)
+            destination = "./audio/{label}_{speaker}.wav".format(label=config['label'], speaker=config['speaker'])
             sound.export(destination, format="wav")
             print('Finish converting.')
 
