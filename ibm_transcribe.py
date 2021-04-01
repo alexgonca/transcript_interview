@@ -2,20 +2,48 @@ from ibm_watson import SpeechToTextV1
 from ibm_cloud_sdk_core.authenticators import IAMAuthenticator
 from time import sleep
 import json
+import boto3
+import uuid
+from pathlib import Path
 
 
-def retrieve_transcript(filepath, language, api_key, service_url, phone=False):
-    authenticator = IAMAuthenticator(api_key)
+def upload_audio_file(filepath, service_config):
+    extension = Path(filepath).suffix[1:]
+    s3_resource = boto3.resource('s3')
+    bucket_name = str(uuid.uuid4())
+    bucket = s3_resource.create_bucket(Bucket=bucket_name)
+    if extension == 'wav':
+        media_object_key = "audio.wav"
+    else:
+        media_object_key = "audio.mp3"
+    bucket.upload_file(filepath, media_object_key)
+    return f"{bucket_name}/{media_object_key}"
+
+
+def retrieve_transcript(identifier, language, speaker_type, service_config, phone=False):
+    s3_items = identifier.split('/')
+    s3_resource = boto3.resource('s3')
+    bucket = s3_resource.Bucket(s3_items[0])
+    extension = Path(s3_items[1]).suffix[1:]
+    if extension == 'wav':
+        local_file = f"{uuid.uuid4()}.wav"
+    else:
+        local_file = f"{uuid.uuid4()}.mp3"
+    bucket.download_file(s3_items[1], local_file)
+    bucket.objects.delete()
+    bucket.delete()
+
+    authenticator = IAMAuthenticator(service_config["api_key"])
     speech_to_text = SpeechToTextV1(authenticator=authenticator)
 
-    speech_to_text.set_service_url(service_url)
+    speech_to_text.set_service_url(service_config["service_url"])
 
     if phone:
         model = f"{language}_NarrowbandModel"
     else:
         model = f"{language}_BroadbandModel"
 
-    with open(filepath, 'rb') as audio_file:
+    with open(local_file, 'rb') as audio_file:
         recognition_job = speech_to_text.create_job(
             audio_file,
             model=model,
@@ -37,21 +65,3 @@ def retrieve_transcript(filepath, language, api_key, service_url, phone=False):
     else:
         return recognition_job
 
-
-def parse_words(transcript, speaker):
-    words = []
-    if speaker in ("interviewee", "both"):
-        interviewee = 1
-    else:
-        interviewee = 0
-    for outer_result in transcript['results']:
-        for inner_result in outer_result['results']:
-            for word in inner_result['alternatives'][0]['timestamps']:
-                words.append({
-                    'service': 'ibm',
-                    'word': word[0],
-                    'start_time': int(word[1] * 1000),
-                    'end_time': int(word[2] * 1000),
-                    'interviewee': interviewee
-                })
-    return words

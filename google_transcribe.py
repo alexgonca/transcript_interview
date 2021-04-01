@@ -1,21 +1,40 @@
 from google.cloud import storage
 from google.cloud import speech_v1p1beta1 as speech
 from google.protobuf.json_format import MessageToDict
+from pathlib import Path
 import uuid
+import shutil
+import json
 
 
-def retrieve_transcript(path_config, bucket_name, filepath, language, speaker):
-    storage_client = storage.Client.from_service_account_json(path_config)
-    bucket = storage_client.bucket(bucket_name)
-    temp_name = "{temp_name}.wav".format(temp_name=str(uuid.uuid4()))
-    blob = bucket.blob(temp_name)
-    blob.upload_from_filename(filepath)
-
+def upload_audio_file(filepath, service_config):
+    json_string = json.dumps(service_config)
+    Path('./tmp/').parent.mkdir(parents=True, exist_ok=True)
+    temp_file = f"./tmp/{uuid.uuid4()}.json"
+    with open(temp_file, 'w', encoding="utf-8") as json_file:
+        json_file.write(json_string)
     try:
-        gcs_uri = "gs://{bucket_name}/{temp_name}".format(bucket_name=bucket_name, temp_name=temp_name)
+        storage_client = storage.Client.from_service_account_json(temp_file)
+        bucket_name = str(uuid.uuid4())
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob("audio.wav")
+        blob.upload_from_filename(filepath)
+    finally:
+        shutil.rmtree('./tmp')
+    return bucket_name
+
+
+def retrieve_transcript(identifier, language, speaker_type, service_config):
+    json_string = json.dumps(service_config)
+    Path('./tmp/').parent.mkdir(parents=True, exist_ok=True)
+    temp_file = f"./tmp/{uuid.uuid4()}.json"
+    with open(temp_file, 'w', encoding="utf-8") as json_file:
+        json_file.write(json_string)
+    try:
+        gcs_uri = f"gs://{identifier}/audio.wav"
         audio = speech.RecognitionAudio(uri=gcs_uri)
 
-        if speaker == 'both':
+        if speaker_type == 'both':
             recognition_config = speech.RecognitionConfig(
                 enable_automatic_punctuation=True,
                 enable_word_time_offsets=True,
@@ -23,7 +42,7 @@ def retrieve_transcript(path_config, bucket_name, filepath, language, speaker):
                 diarization_speaker_count=2,
                 language_code=language
             )
-        elif speaker in ['interviewee', 'interviewer']:
+        elif speaker_type in ['interviewee', 'interviewer']:
             recognition_config = speech.RecognitionConfig(
                 enable_automatic_punctuation=True,
                 enable_word_time_offsets=True,
@@ -31,45 +50,15 @@ def retrieve_transcript(path_config, bucket_name, filepath, language, speaker):
                 language_code=language
             )
         else:
-            raise TypeError('unknown speaker type: {speaker}'.format(speaker=speaker))
-        speech_client = speech.SpeechClient.from_service_account_json(path_config)
+            raise TypeError('unknown speaker type: {speaker}'.format(speaker=speaker_type))
+        speech_client = speech.SpeechClient.from_service_account_json(temp_file)
         operation = speech_client.long_running_recognize(config=recognition_config, audio=audio)
         response = operation.result()
         response_dict = MessageToDict(response.__class__.pb(response))
-        return response_dict
     finally:
+        storage_client = storage.Client.from_service_account_json(temp_file)
+        bucket = storage_client.bucket(identifier)
+        blob = bucket.blob("audio.wav")
         blob.delete()
-
-
-def parse_words(transcript, speaker):
-    words = []
-    if speaker == "both":
-        for word in transcript['results'][-1]['alternatives'][0]['words']:
-            if word['speakerTag'] == 1:
-                interviewee = 0
-            else:
-                interviewee = 1
-            words.append({
-                'service': 'google',
-                'word': word['word'],
-                'start_time': int(float(word['startTime'][:-1]) * 1000),
-                'end_time': int(float(word['endTime'][:-1]) * 1000),
-                'interviewee': interviewee
-            })
-    elif speaker in ['interviewee', 'interviewer']:
-        if speaker == 'interviewee':
-            interviewee = 1
-        else:
-            interviewee = 0
-        for word_cluster in transcript['results']:
-            for word in word_cluster['alternatives'][0]['words']:
-                words.append({
-                    'service': 'google',
-                    'word': word['word'],
-                    'start_time': int(float(word['startTime'][:-1]) * 1000),
-                    'end_time': int(float(word['endTime'][:-1]) * 1000),
-                    'interviewee': interviewee
-                })
-    else:
-        raise TypeError('Unknown speaker type: {speaker}'.format(speaker=speaker))
-    return words
+        shutil.rmtree('./tmp')
+    return response_dict

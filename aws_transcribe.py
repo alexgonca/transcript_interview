@@ -132,7 +132,7 @@ class TranscribeCompleteWaiter(CustomWaiter):
 
 
 def start_job(
-        job_name, media_uri, media_format, language_code, speaker, transcribe_client,
+        job_name, media_uri, media_format, language_code, speaker_type, transcribe_client,
         vocabulary_name=None):
     """
     Starts a transcription job. This function returns as soon as the job is started.
@@ -161,7 +161,7 @@ def start_job(
                 'ShowAlternatives': False,
                 'ShowSpeakerLabels': False
             }}
-        if speaker == "both":
+        if speaker_type == "both":
             job_args['Settings']['ShowSpeakerLabels'] = True
             job_args['Settings']['MaxSpeakerLabels'] = 2
         if vocabulary_name is not None:
@@ -213,67 +213,32 @@ def delete_job(job_name, transcribe_client):
         raise
 
 
-def retrieve_transcript(filepath, language, speaker, access_key, secret_key, region):
-    session = boto3.Session(
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        region_name=region
-    )
-    s3_resource = session.resource('s3')
-    transcribe_client = session.client('transcribe')
-    bucket_name = f'alex-transcript-{time.time_ns()}'
-    bucket = s3_resource.create_bucket(
-        Bucket=bucket_name,
-        CreateBucketConfiguration={
-            'LocationConstraint': transcribe_client.meta.region_name})
-    media_object_key = f"{uuid.uuid4()}.wav"
+def upload_audio_file(filepath, service_config):
+    s3_resource = boto3.resource('s3')
+    bucket_name = str(uuid.uuid4())
+    bucket = s3_resource.create_bucket(Bucket=bucket_name)
+    media_object_key = "audio.wav"
     bucket.upload_file(filepath, media_object_key)
+    return bucket_name
+
+
+def retrieve_transcript(identifier, language, speaker_type, service_config):
     try:
-        media_uri = f's3://{bucket.name}/{media_object_key}'
+        transcribe_client = boto3.client('transcribe')
         job_name_simple = f'Alex-Transcript-{time.time_ns()}'
-        print(f"Starting transcription job {job_name_simple}.")
-        start_job(job_name_simple, media_uri, 'wav', language, speaker, transcribe_client)
+        logging.info(f"Starting transcription job {job_name_simple}.")
+        start_job(job_name_simple, f's3://{identifier}/audio.wav', 'wav', language, speaker_type, transcribe_client)
         transcribe_waiter = TranscribeCompleteWaiter(transcribe_client)
         transcribe_waiter.wait(job_name_simple)
         job_simple = get_job(job_name_simple, transcribe_client)
         transcript_simple = requests.get(job_simple['Transcript']['TranscriptFileUri']).json()
-        print("Deleting demo jobs.")
+        logging.info("Deleting demo jobs.")
         delete_job(job_name_simple, transcribe_client)
     finally:
-        print("Deleting demo bucket.")
+        logging.info("Deleting demo bucket.")
+        s3_resource = boto3.resource('s3')
+        bucket = s3_resource.Bucket(identifier)
         bucket.objects.delete()
         bucket.delete()
     return transcript_simple
 
-
-def parse_words(transcript, speaker):
-    if speaker == 'interviewee':
-        interviewee = 1
-    elif speaker == 'interviewer':
-        interviewee = 0
-    else:
-        diarization = {}
-        for speaker_segment in transcript['results']['speaker_labels']['segments']:
-            for item in speaker_segment['items']:
-                diarization[item['start_time']] = {}
-                if item['speaker_label'] == 'spk_0':
-                    diarization[item['start_time']][item['end_time']] = 0
-                else:
-                    diarization[item['start_time']][item['end_time']] = 1
-    words = []
-    for word in transcript['results']['items']:
-        if word['type'] == 'pronunciation':
-            words.append({
-                'service': 'ibm',
-                'word': word['alternatives'][0]['content'],
-                'start_time': int(float(word['start_time'])*1000),
-                'end_time': int(float(word['end_time'])*1000),
-                'interviewee': 0
-            })
-            if speaker in ('interviewee', 'interviewer'):
-                words[-1]['interviewee'] = interviewee
-            else:
-                words[-1]['interviewee'] = diarization[word['start_time']][word['end_time']]
-        elif word['type'] == 'punctuation':
-            words[-1]['word'] += word['alternatives'][0]['content']
-    return words
