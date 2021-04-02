@@ -10,7 +10,7 @@ import json
 def upload_audio_file(filepath, service_config):
     storage_client = get_google_client(type="storage", service_config=service_config)
     bucket_name = str(uuid.uuid4())
-    bucket = storage_client.bucket(bucket_name)
+    bucket = storage_client.create_bucket(bucket_name, location="us")
     blob = bucket.blob("audio.wav")
     blob.upload_from_filename(filepath)
     return bucket_name
