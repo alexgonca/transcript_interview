@@ -62,6 +62,5 @@ def get_google_client(type, service_config):
 
 def delete_uploaded_file(identifier, service_config):
     storage_client = get_google_client(type="storage", service_config=service_config)
-    bucket = storage_client.bucket(identifier)
-    blob = bucket.blob("audio.wav")
-    blob.delete()
+    bucket = storage_client.get_bucket(identifier)
+    bucket.delete()
