@@ -112,7 +112,7 @@ class Transcript:
                                 partitions=partitions)
 
     def retrieve_transcript(self, project, speaker, performance_date,
-                            filepath, speaker_type, language,
+                            speaker_type, language=None, filepath=None,
                             microsoft=False, ibm=False, aws=False, google=False):
         retrieved = {
             'microsoft': None,

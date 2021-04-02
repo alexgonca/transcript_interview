@@ -3,6 +3,7 @@ from parse_words import parse_words
 import argparse
 from collections import OrderedDict
 import logging
+import datetime
 
 
 # todo create routine to export data as csv
@@ -40,10 +41,17 @@ def main():
             raise Exception(f"Invalid service: {args.service}")
         try:
             logging.info(f'Retrieve transcript on {args.service}')
+            metadata = {
+                'started_at': str(datetime.datetime.utcnow()),
+                'language': args.language,
+                'audio_storage': args.identifier
+            }
             transcript = retrieve_transcript(identifier=args.identifier,
                                              language=args.language,
                                              speaker_type=args.speaker_type,
                                              service_config=config[args.service])
+            metadata['finished_at'] = str(datetime.datetime.utcnow())
+            transcript['metadata_internet_scholar'] = metadata
         finally:
             delete_uploaded_file(args.identifier, config[args.service])
         logging.info(f'Succesfully retrieved transcript on {args.service}')
