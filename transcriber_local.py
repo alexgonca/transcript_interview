@@ -1,11 +1,10 @@
 from pydub import AudioSegment
 from pathlib import Path
 import shutil
-import botocore
 import uuid
 from internet_scholar import read_dict_from_s3, s3_key_exists, save_data_in_s3, instantiate_ec2
 from collections import OrderedDict
-from parse_words import parse_words
+from transcriber_parser import parse_words
 
 
 class Transcript:
@@ -14,17 +13,11 @@ class Transcript:
         self.config = read_dict_from_s3(bucket=self.bucket, key='config/config.json')
 
     def check_existing_data(self, project, speaker, performance_date, speaker_type, service, retrieved, parsed):
-        try:
-            retrieved[service] = read_dict_from_s3(self.bucket,
-                                                   f'transcript/service={service}/project={project}/speaker={speaker}/'
-                                                   f'performance_date={performance_date}/speaker_type={speaker_type}/transcript.json.bz2',
-                                                   compressed=True)
-        except botocore.exceptions.ClientError as e:
-            if e.response['Error']['Code'] == "NoSuchKey":
-                retrieved[service] = None
-            else:
-                raise
-        else:
+        retrieved[service] = read_dict_from_s3(self.bucket,
+                                               f'transcript/service={service}/project={project}/speaker={speaker}/'
+                                               f'performance_date={performance_date}/speaker_type={speaker_type}/transcript.json.bz2',
+                                               compressed=True)
+        if retrieved[service] is not None:
             if speaker_type in ('single', 'interviewee'):
                 parsed[service] = s3_key_exists(self.bucket,
                                                 f'word/project={project}/speaker={speaker}/performance_date={performance_date}/'
@@ -52,13 +45,13 @@ class Transcript:
                                       parsed, language, speaker, speaker_type, filepath, original_file=None):
         size = 8
         if service == "microsoft":
-            from microsoft_transcribe import upload_audio_file, delete_uploaded_file
+            from transcribe_microsoft import upload_audio_file, delete_uploaded_file
         elif service == "google":
-            from google_transcribe import upload_audio_file, delete_uploaded_file
+            from transcribe_google import upload_audio_file, delete_uploaded_file
         elif service == "aws":
-            from aws_transcribe import upload_audio_file, delete_uploaded_file
+            from transcribe_aws import upload_audio_file, delete_uploaded_file
         elif service == "ibm":
-            from ibm_transcribe import upload_audio_file, delete_uploaded_file
+            from transcribe_ibm import upload_audio_file, delete_uploaded_file
             size = 10
             if Path(filepath).stat().st_size >= 1073741824:
                 extension = Path(original_file).suffix[1:]

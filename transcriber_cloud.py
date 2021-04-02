@@ -1,5 +1,5 @@
 from internet_scholar import AthenaLogger, read_dict_from_s3, save_data_in_s3
-from parse_words import parse_words
+from transcriber_parser import parse_words
 import argparse
 from collections import OrderedDict
 import logging
@@ -30,13 +30,13 @@ def main():
 
     try:
         if args.service == "microsoft":
-            from microsoft_transcribe import retrieve_transcript, delete_uploaded_file
+            from transcribe_microsoft import retrieve_transcript, delete_uploaded_file
         elif args.service == "google":
-            from google_transcribe import retrieve_transcript, delete_uploaded_file
+            from transcribe_google import retrieve_transcript, delete_uploaded_file
         elif args.service == "aws":
-            from aws_transcribe import retrieve_transcript, delete_uploaded_file
+            from transcribe_aws import retrieve_transcript, delete_uploaded_file
         elif args.service == "ibm":
-            from ibm_transcribe import retrieve_transcript, delete_uploaded_file
+            from transcribe_ibm import retrieve_transcript, delete_uploaded_file
         else:
             raise Exception(f"Invalid service: {args.service}")
         try:
