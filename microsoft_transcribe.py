@@ -63,88 +63,85 @@ def upload_audio_file(filepath, service_config):
 
 
 def retrieve_transcript(identifier, language, speaker_type, service_config):
+    blob_service_client = BlobServiceClient.from_connection_string(service_config['connection_string'])
+    container_client = blob_service_client.get_container_client(identifier)
+    blob_client = container_client.get_blob_client('audio.wav')
+    sas_blob = generate_blob_sas(account_name=service_config['account_name'],
+                                 container_name=identifier,
+                                 blob_name='audio.wav',
+                                 account_key=service_config['account_key'],
+                                 permission=BlobSasPermissions(read=True),
+                                 expiry=datetime.utcnow() + timedelta(hours=24))
+    uri = blob_client.url + '?' + sas_blob
+    logging.info("Starting transcription client...")
+
+    # configure API key authorization: subscription_key
+    configuration = cris_client.Configuration()
+    configuration.api_key["Ocp-Apim-Subscription-Key"] = service_config['subscription_key']
+    configuration.host = f"https://{service_config['service_region']}.api.cognitive.microsoft.com/speechtotext/v3.0"
+
+    # create the client object and authenticate
+    client = cris_client.ApiClient(configuration)
+
+    # create an instance of the transcription api class
+    api = cris_client.DefaultApi(api_client=client)
     try:
-        blob_service_client = BlobServiceClient.from_connection_string(service_config['connection_string'])
-        container_client = blob_service_client.get_container_client(identifier)
-        blob_client = container_client.get_blob_client('audio.wav')
-        sas_blob = generate_blob_sas(account_name=service_config['account_name'],
-                                     container_name=identifier,
-                                     blob_name='audio.wav',
-                                     account_key=service_config['account_key'],
-                                     permission=BlobSasPermissions(read=True),
-                                     expiry=datetime.utcnow() + timedelta(hours=24))
-        uri = blob_client.url + '?' + sas_blob
-        logging.info("Starting transcription client...")
+        # Specify transcription properties by passing a dict to the properties parameter. See
+        # https://docs.microsoft.com/azure/cognitive-services/speech-service/batch-transcription#configuration-properties
+        # for supported parameters.
+        properties = {
+            "punctuationMode": "Automatic",
+            "profanityFilterMode": "None",
+            "wordLevelTimestampsEnabled": True,
+            "diarizationEnabled": (speaker_type == "both"),
+            "timeToLive": "PT1H"
+        }
 
-        # configure API key authorization: subscription_key
-        configuration = cris_client.Configuration()
-        configuration.api_key["Ocp-Apim-Subscription-Key"] = service_config['subscription_key']
-        configuration.host = f"https://{service_config['service_region']}.api.cognitive.microsoft.com/speechtotext/v3.0"
+        # Use base models for transcription.
+        transcription_definition = cris_client.Transcription(
+            display_name="Simple transcription",
+            description="Simple transcription description",
+            locale=language,
+            content_urls=[uri],
+            properties=properties
+        )
 
-        # create the client object and authenticate
-        client = cris_client.ApiClient(configuration)
+        created_transcription, status, headers = api.create_transcription_with_http_info(transcription=transcription_definition)
 
-        # create an instance of the transcription api class
-        api = cris_client.DefaultApi(api_client=client)
-        try:
-            # Specify transcription properties by passing a dict to the properties parameter. See
-            # https://docs.microsoft.com/azure/cognitive-services/speech-service/batch-transcription#configuration-properties
-            # for supported parameters.
-            properties = {
-                "punctuationMode": "Automatic",
-                "profanityFilterMode": "None",
-                "wordLevelTimestampsEnabled": True,
-                "diarizationEnabled": (speaker_type == "both"),
-                "timeToLive": "PT1H"
-            }
+        # get the transcription Id from the location URI
+        transcription_id = headers["location"].split("/")[-1]
 
-            # Use base models for transcription.
-            transcription_definition = cris_client.Transcription(
-                display_name="Simple transcription",
-                description="Simple transcription description",
-                locale=language,
-                content_urls=[uri],
-                properties=properties
-            )
+        # Log information about the created transcription. If you should ask for support, please
+        # include this information.
+        logging.info(f"Created new transcription with id '{transcription_id}' in region {service_config['service_region']}")
 
-            created_transcription, status, headers = api.create_transcription_with_http_info(transcription=transcription_definition)
+        logging.info("Checking status.")
 
-            # get the transcription Id from the location URI
-            transcription_id = headers["location"].split("/")[-1]
+        transcript = {}
+        completed = False
+        while not completed:
+            # wait for 5 seconds before refreshing the transcription status
+            time.sleep(5)
 
-            # Log information about the created transcription. If you should ask for support, please
-            # include this information.
-            logging.info(f"Created new transcription with id '{transcription_id}' in region {service_config['service_region']}")
+            transcription = api.get_transcription(transcription_id)
+            logging.info(f"Transcriptions status: {transcription.status}")
 
-            logging.info("Checking status.")
+            if transcription.status in ("Failed", "Succeeded"):
+                completed = True
 
-            transcript = {}
-            completed = False
-            while not completed:
-                # wait for 5 seconds before refreshing the transcription status
-                time.sleep(5)
+            if transcription.status == "Succeeded":
+                pag_files = api.get_transcription_files(transcription_id)
+                for file_data in _paginate(api, pag_files):
+                    if file_data.kind != "Transcription":
+                        continue
 
-                transcription = api.get_transcription(transcription_id)
-                logging.info(f"Transcriptions status: {transcription.status}")
-
-                if transcription.status in ("Failed", "Succeeded"):
-                    completed = True
-
-                if transcription.status == "Succeeded":
-                    pag_files = api.get_transcription_files(transcription_id)
-                    for file_data in _paginate(api, pag_files):
-                        if file_data.kind != "Transcription":
-                            continue
-
-                        results_url = file_data.links.content_url
-                        results = requests.get(results_url)
-                        transcript = json.loads(results.content)
-                elif transcription.status == "Failed":
-                    raise Exception(f"Transcription failed: {transcription.properties.error.message}")
-        finally:
-            delete_all_transcriptions(api)
+                    results_url = file_data.links.content_url
+                    results = requests.get(results_url)
+                    transcript = json.loads(results.content)
+            elif transcription.status == "Failed":
+                raise Exception(f"Transcription failed: {transcription.properties.error.message}")
     finally:
-        delete_uploaded_file(identifier, service_config)
+        delete_all_transcriptions(api)
     return transcript
 
 

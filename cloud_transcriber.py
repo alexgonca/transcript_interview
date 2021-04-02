@@ -30,20 +30,23 @@ def main():
 
     try:
         if args.service == "microsoft":
-            from microsoft_transcribe import retrieve_transcript
+            from microsoft_transcribe import retrieve_transcript, delete_uploaded_file
         elif args.service == "google":
-            from google_transcribe import retrieve_transcript
+            from google_transcribe import retrieve_transcript, delete_uploaded_file
         elif args.service == "aws":
-            from aws_transcribe import retrieve_transcript
+            from aws_transcribe import retrieve_transcript, delete_uploaded_file
         elif args.service == "ibm":
-            from ibm_transcribe import retrieve_transcript
+            from ibm_transcribe import retrieve_transcript, delete_uploaded_file
         else:
             raise Exception(f"Invalid service: {args.service}")
-        logging.info(f'Retrieve transcript on {args.service}')
-        transcript = retrieve_transcript(identifier=args.uri,
-                                         language=args.language,
-                                         speaker_type=args.speaker_type,
-                                         service_config=config[args.service])
+        try:
+            logging.info(f'Retrieve transcript on {args.service}')
+            transcript = retrieve_transcript(identifier=args.identifier,
+                                             language=args.language,
+                                             speaker_type=args.speaker_type,
+                                             service_config=config[args.service])
+        finally:
+            delete_uploaded_file(args.identifier, config[args.service])
         logging.info(f'Succesfully retrieved transcript on {args.service}')
         partitions = OrderedDict()
         partitions['service'] = args.service

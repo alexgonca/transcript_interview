@@ -11,16 +11,15 @@ from parse_words import parse_words
 INIT_SCRIPT = """#!/bin/bash
 sudo apt update
 sudo apt install -y python3-pip unzip
-cd /home/ubuntu
 wget https://github.com/alexgonca/transcript_interview/archive/refs/heads/main.zip
 unzip main.zip
 rm main.zip
-find ./transcript_interview-main/* -maxdepth 0 -type d,f -exec mv -t ./ {} +
+find ./transcript_interview-main/* -maxdepth 0 -type d,f -exec mv -t ./ {{}} +
 rm -R ./transcript_interview-main
 wget https://raw.githubusercontent.com/internet-scholar/internet_scholar/master/requirements.txt -O requirements2.txt
 wget https://raw.githubusercontent.com/internet-scholar/internet_scholar/master/internet_scholar.py
-pip3 install --trusted-host pypi.python.org -r /home/ubuntu/transcript_interview-main/requirements.txt
-pip3 install --trusted-host pypi.python.org -r /home/ubuntu/transcript_interview-main/requirements2.txt
+pip3 install --trusted-host pypi.python.org -r /home/ubuntu/requirements.txt
+pip3 install --trusted-host pypi.python.org -r /home/ubuntu/requirements2.txt
 python3 cloud_transcriber.py -b {bucket} -i {identifier} -l {language} -s {speaker} -t {speaker_type} -d {performance_date} -p {project} -v {service}
 sudo shutdown -h now
 """
@@ -91,9 +90,11 @@ class Transcript:
                                                                performance_date=performance_date,
                                                                project=project,
                                                                service=service),
-                                name=f"{service}_transcribe", simulation=True)
-            finally:
+                                name=f"{service}_transcribe",
+                                simulation=True)
+            except:
                 delete_uploaded_file(identifier=identifier, service_config=self.config[service])
+                raise
         elif not parsed[service]:
             words = parse_words(transcript=retrieved[service], speaker_type=speaker_type, service=service)
             partitions = OrderedDict()

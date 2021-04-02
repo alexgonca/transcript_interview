@@ -223,20 +223,16 @@ def upload_audio_file(filepath, service_config):
 
 
 def retrieve_transcript(identifier, language, speaker_type, service_config):
-    try:
-        transcribe_client = boto3.client('transcribe')
-        job_name_simple = f'Alex-Transcript-{time.time_ns()}'
-        logging.info(f"Starting transcription job {job_name_simple}.")
-        start_job(job_name_simple, f's3://{identifier}/audio.wav', 'wav', language, speaker_type, transcribe_client)
-        transcribe_waiter = TranscribeCompleteWaiter(transcribe_client)
-        transcribe_waiter.wait(job_name_simple)
-        job_simple = get_job(job_name_simple, transcribe_client)
-        transcript_simple = requests.get(job_simple['Transcript']['TranscriptFileUri']).json()
-        logging.info("Deleting demo jobs.")
-        delete_job(job_name_simple, transcribe_client)
-    finally:
-        logging.info("Deleting demo bucket.")
-        delete_uploaded_file(identifier, service_config)
+    transcribe_client = boto3.client('transcribe')
+    job_name_simple = f'Alex-Transcript-{time.time_ns()}'
+    logging.info(f"Starting transcription job {job_name_simple}.")
+    start_job(job_name_simple, f's3://{identifier}/audio.wav', 'wav', language, speaker_type, transcribe_client)
+    transcribe_waiter = TranscribeCompleteWaiter(transcribe_client)
+    transcribe_waiter.wait(job_name_simple)
+    job_simple = get_job(job_name_simple, transcribe_client)
+    transcript_simple = requests.get(job_simple['Transcript']['TranscriptFileUri']).json()
+    logging.info("Deleting demo jobs.")
+    delete_job(job_name_simple, transcribe_client)
     return transcript_simple
 
 

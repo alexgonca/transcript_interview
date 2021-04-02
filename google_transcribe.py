@@ -17,33 +17,30 @@ def upload_audio_file(filepath, service_config):
 
 
 def retrieve_transcript(identifier, language, speaker_type, service_config):
-    try:
-        gcs_uri = f"gs://{identifier}/audio.wav"
-        audio = speech.RecognitionAudio(uri=gcs_uri)
+    gcs_uri = f"gs://{identifier}/audio.wav"
+    audio = speech.RecognitionAudio(uri=gcs_uri)
 
-        if speaker_type == 'both':
-            recognition_config = speech.RecognitionConfig(
-                enable_automatic_punctuation=True,
-                enable_word_time_offsets=True,
-                enable_speaker_diarization=True,
-                diarization_speaker_count=2,
-                language_code=language
-            )
-        elif speaker_type in ['interviewee', 'interviewer']:
-            recognition_config = speech.RecognitionConfig(
-                enable_automatic_punctuation=True,
-                enable_word_time_offsets=True,
-                enable_speaker_diarization=False,
-                language_code=language
-            )
-        else:
-            raise TypeError('unknown speaker type: {speaker}'.format(speaker=speaker_type))
-        speech_client = get_google_client(type="speech", service_config=service_config)
-        operation = speech_client.long_running_recognize(config=recognition_config, audio=audio)
-        response = operation.result()
-        response_dict = MessageToDict(response.__class__.pb(response))
-    finally:
-        delete_uploaded_file(identifier, service_config)
+    if speaker_type == 'both':
+        recognition_config = speech.RecognitionConfig(
+            enable_automatic_punctuation=True,
+            enable_word_time_offsets=True,
+            enable_speaker_diarization=True,
+            diarization_speaker_count=2,
+            language_code=language
+        )
+    elif speaker_type in ['interviewee', 'interviewer']:
+        recognition_config = speech.RecognitionConfig(
+            enable_automatic_punctuation=True,
+            enable_word_time_offsets=True,
+            enable_speaker_diarization=False,
+            language_code=language
+        )
+    else:
+        raise TypeError('unknown speaker type: {speaker}'.format(speaker=speaker_type))
+    speech_client = get_google_client(type="speech", service_config=service_config)
+    operation = speech_client.long_running_recognize(config=recognition_config, audio=audio)
+    response = operation.result()
+    response_dict = MessageToDict(response.__class__.pb(response))
     return response_dict
 
 
