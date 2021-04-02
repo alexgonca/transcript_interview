@@ -83,7 +83,7 @@ class Transcript:
                                 instance_type='t3a.nano',
                                 size=size,
                                 init_script="https://raw.githubusercontent.com/alexgonca/transcript_interview/main/init_server.sh",
-                                name=f"{service}_transcribe")
+                                name=f"{service}_{speaker}_{speaker_type}")
             except:
                 delete_uploaded_file(identifier=identifier, service_config=self.config[service])
                 raise
