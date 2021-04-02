@@ -33,21 +33,24 @@ def parse_words_microsoft(transcript, speaker_type):
             else:
                 protagonist = 1
         phrase_with_punctuation = phrase['nBest'][0].get('display', '').split()
-        duration_word = int( ( phrase['durationInTicks'] / 10000 ) // len(phrase_with_punctuation))
-        offset_word = int( phrase['offsetInTicks'] / 10000 )
-        end_phrase = offset_word + int( phrase['durationInTicks'] / 10000 )
-        for word in phrase_with_punctuation:
-            words.append({
-                'seq_num': seq_num,
-                'word': word,
-                'start_time': offset_word,
-                'end_time': offset_word + duration_word - 1,
-                'protagonist': protagonist
-            })
-            seq_num = seq_num + 1
-            offset_word = offset_word + duration_word
-        if len(words) > 0:
-            words[-1]['end_time'] = end_phrase
+        if len(phrase_with_punctuation) > 0:
+            words_in_phrase = []
+            duration_word = int( ( phrase['durationInTicks'] / 10000 ) // len(phrase_with_punctuation))
+            offset_word = int( phrase['offsetInTicks'] / 10000 )
+            end_phrase = offset_word + int( phrase['durationInTicks'] / 10000 )
+            for word in phrase_with_punctuation:
+                words_in_phrase.append({
+                    'seq_num': seq_num,
+                    'word': word,
+                    'start_time': offset_word,
+                    'end_time': offset_word + duration_word - 1,
+                    'protagonist': protagonist
+                })
+                seq_num = seq_num + 1
+                offset_word = offset_word + duration_word
+            if len(words_in_phrase) > 0:
+                words_in_phrase[-1]['end_time'] = end_phrase
+            words = words + words_in_phrase
     return words
 
 
