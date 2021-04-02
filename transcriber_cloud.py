@@ -39,21 +39,20 @@ def main():
             from transcribe_ibm import retrieve_transcript, delete_uploaded_file
         else:
             raise Exception(f"Invalid service: {args.service}")
-        try:
-            logging.info(f'Retrieve transcript on {args.service}')
-            metadata = {
-                'started_at': str(datetime.datetime.utcnow()),
-                'language': args.language,
-                'audio_storage': args.identifier
-            }
-            transcript = retrieve_transcript(identifier=args.identifier,
-                                             language=args.language,
-                                             speaker_type=args.speaker_type,
-                                             service_config=config[args.service])
-            metadata['finished_at'] = str(datetime.datetime.utcnow())
-            transcript['metadata_internet_scholar'] = metadata
-        finally:
-            delete_uploaded_file(args.identifier, config[args.service])
+
+        logging.info(f'Retrieve transcript on {args.service}')
+        metadata = {
+            'started_at': str(datetime.datetime.utcnow()),
+            'language': args.language,
+            'audio_storage': args.identifier
+        }
+        transcript = retrieve_transcript(identifier=args.identifier,
+                                         language=args.language,
+                                         speaker_type=args.speaker_type,
+                                         service_config=config[args.service])
+        metadata['finished_at'] = str(datetime.datetime.utcnow())
+        transcript['metadata_internet_scholar'] = metadata
+
         logging.info(f'Succesfully retrieved transcript on {args.service}')
         partitions = OrderedDict()
         partitions['service'] = args.service
@@ -92,7 +91,9 @@ def main():
                             s3_key='word.json',
                             prefix='word',
                             partitions=partitions)
+
     finally:
+        delete_uploaded_file(args.identifier, config[args.service])
         logger.save_to_s3()
 
 
