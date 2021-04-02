@@ -52,7 +52,7 @@ class Transcript:
 
     def instantiate_cloud_transcriber(self, service, retrieved, project, performance_date,
                                       parsed, language, speaker, speaker_type, filepath, original_file=None):
-        size = 5
+        size = 8
         if service == "microsoft":
             from microsoft_transcribe import upload_audio_file
         elif service == "google":
@@ -61,12 +61,12 @@ class Transcript:
             from aws_transcribe import upload_audio_file
         elif service == "ibm":
             from ibm_transcribe import upload_audio_file
-            size = 8
+            size = 10
             if Path(filepath).stat().st_size >= 1073741824:
                 extension = Path(original_file).suffix[1:]
                 sound = AudioSegment.from_file(original_file, extension)
                 sound = sound.set_channels(1)
-                Path('./audio/').parent.mkdir(parents=True, exist_ok=True)
+                Path('./audio/').mkdir(parents=True, exist_ok=True)
                 filepath = f"./audio/{uuid.uuid4()}.mp3"
                 sound.export(filepath, format="mp3")
         else:
@@ -78,7 +78,7 @@ class Transcript:
                             key_name=self.config['aws']['key_name'],
                             security_group=self.config['aws']['security_group'],
                             iam=self.config['aws']['iam'],
-                            instance_type='t3a_nano',
+                            instance_type='t3a.nano',
                             size=size,
                             init_script=INIT_SCRIPT.format(bucket=self.bucket,
                                                            identifier=identifier,
@@ -141,7 +141,7 @@ class Transcript:
             extension = Path(filepath).suffix[1:]
             sound = AudioSegment.from_file(filepath, extension)
             sound = sound.set_channels(1)
-            Path('./audio/').parent.mkdir(parents=True, exist_ok=True)
+            Path('./audio/').mkdir(parents=True, exist_ok=True)
             destination = f"./audio/{uuid.uuid4()}.wav"
             sound.export(destination, format="wav")
 

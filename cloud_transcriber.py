@@ -24,7 +24,7 @@ def main():
     config = read_dict_from_s3(bucket=args.bucket, key='config/config.json')
 
     logger = AthenaLogger(
-        app_name=f"transcribe_{args.service}_{args.project}_{args.speaker}_{args.speaker_type}_{args.performed_date}",
+        app_name=f"transcribe_{args.service}_{args.project}_{args.speaker}_{args.speaker_type}_{args.performance_date}",
         s3_bucket=args.bucket,
         athena_db=config['aws']['athena'])
 

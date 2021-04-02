@@ -9,7 +9,7 @@ import json
 
 def upload_audio_file(filepath, service_config):
     json_string = json.dumps(service_config)
-    Path('./tmp/').parent.mkdir(parents=True, exist_ok=True)
+    Path('./tmp/').mkdir(parents=True, exist_ok=True)
     temp_file = f"./tmp/{uuid.uuid4()}.json"
     with open(temp_file, 'w', encoding="utf-8") as json_file:
         json_file.write(json_string)
@@ -26,7 +26,7 @@ def upload_audio_file(filepath, service_config):
 
 def retrieve_transcript(identifier, language, speaker_type, service_config):
     json_string = json.dumps(service_config)
-    Path('./tmp/').parent.mkdir(parents=True, exist_ok=True)
+    Path('./tmp/').mkdir(parents=True, exist_ok=True)
     temp_file = f"./tmp/{uuid.uuid4()}.json"
     with open(temp_file, 'w', encoding="utf-8") as json_file:
         json_file.write(json_string)
