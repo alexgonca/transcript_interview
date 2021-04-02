@@ -8,23 +8,6 @@ from collections import OrderedDict
 from parse_words import parse_words
 
 
-INIT_SCRIPT = """#!/bin/bash
-sudo apt update && \
-sudo apt install -y python3-pip unzip && \
-wget https://github.com/alexgonca/transcript_interview/archive/refs/heads/main.zip && \
-unzip main.zip && \
-rm main.zip && \
-find ./transcript_interview-main/* -maxdepth 0 -type d,f -exec mv -t ./ {{}} + && \
-rm -R ./transcript_interview-main && \
-wget https://raw.githubusercontent.com/internet-scholar/internet_scholar/master/requirements.txt -O requirements2.txt && \
-wget https://raw.githubusercontent.com/internet-scholar/internet_scholar/master/internet_scholar.py && \
-pip3 install --trusted-host pypi.python.org -r /home/ubuntu/requirements.txt && \
-pip3 install --trusted-host pypi.python.org -r /home/ubuntu/requirements2.txt && \
-python3 cloud_transcriber.py -b {bucket} -i {identifier} -l {language} -s {speaker} -t {speaker_type} -d {performance_date} -p {project} -v {service}
-sudo shutdown -h now
-"""
-
-
 class Transcript:
     def __init__(self, bucket):
         self.bucket = bucket
@@ -90,22 +73,17 @@ class Transcript:
         if not retrieved[service]:
             identifier = upload_audio_file(filepath=filepath, service_config=self.config[service])
             try:
+                parameters = f"{self.bucket} {identifier} {language} {speaker} {speaker_type} " \
+                             f"{performance_date} {project} {service}"
                 instantiate_ec2(ami=self.config['aws']['ami'],
                                 key_name=self.config['aws']['key_name'],
                                 security_group=self.config['aws']['security_group'],
                                 iam=self.config['aws']['iam'],
+                                parameters=parameters,
                                 instance_type='t3a.nano',
                                 size=size,
-                                init_script=INIT_SCRIPT.format(bucket=self.bucket,
-                                                               identifier=identifier,
-                                                               language=language,
-                                                               speaker=speaker,
-                                                               speaker_type=speaker_type,
-                                                               performance_date=performance_date,
-                                                               project=project,
-                                                               service=service),
-                                name=f"{service}_transcribe",
-                                simulation=False)
+                                init_script="https://raw.githubusercontent.com/alexgonca/transcript_interview/main/init_server.sh",
+                                name=f"{service}_transcribe")
             except:
                 delete_uploaded_file(identifier=identifier, service_config=self.config[service])
                 raise
