@@ -1,3 +1,24 @@
+def split_words_protagonism(words):
+    protagonist_words = []
+    non_protagonist_words = []
+    for word in words:
+        if word['protagonist'] == 1:
+            protagonist_words.append({
+                'seq_num': word['seq_num'],
+                'word': word['word'],
+                'start_time': word['start_time'],
+                'end_time': word['end_time']
+            })
+        else:
+            non_protagonist_words.append({
+                'seq_num': word['seq_num'],
+                'word': word['word'],
+                'start_time': word['start_time'],
+                'end_time': word['end_time']
+            })
+    return protagonist_words, non_protagonist_words
+
+
 def parse_words_microsoft(transcript, speaker_type):
     words = []
     if (speaker_type == "interviewee") or (speaker_type == "single"):
@@ -125,12 +146,13 @@ def parse_words_aws(transcript, speaker_type):
 
 def parse_words(transcript, speaker_type, service):
     if service == "microsoft":
-        return parse_words_microsoft(transcript=transcript, speaker_type=speaker_type)
+        words = parse_words_microsoft(transcript=transcript, speaker_type=speaker_type)
     elif service == "google":
-        return parse_words_google(transcript=transcript, speaker_type=speaker_type)
+        words = parse_words_google(transcript=transcript, speaker_type=speaker_type)
     elif service == "aws":
-        return parse_words_aws(transcript=transcript, speaker_type=speaker_type)
+        words = parse_words_aws(transcript=transcript, speaker_type=speaker_type)
     elif service == "ibm":
-        return parse_words_ibm(transcript=transcript, speaker_type=speaker_type)
+        words = parse_words_ibm(transcript=transcript, speaker_type=speaker_type)
     else:
         raise TypeError(f"Invalid service: {service}")
+    return split_words_protagonism(words)

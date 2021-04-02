@@ -62,19 +62,29 @@ def main():
                         partitions=partitions)
 
         logging.info(f'Parse words')
-        words = parse_words(transcript=transcript, speaker_type=args.speaker_type, service=args.service)
+        protagonist_words, non_protagonist_words = parse_words(transcript=transcript,
+                                                               speaker_type=args.speaker_type,
+                                                               service=args.service)
         partitions = OrderedDict()
         partitions['project'] = args.project
         partitions['speaker'] = args.speaker
         partitions['performance_date'] = args.performance_date
         partitions['service'] = args.service
-        partitions['speaker_type'] = args.speaker_type
         logging.info('Save words on S3')
-        save_data_in_s3(content=words,
-                        s3_bucket=args.bucket,
-                        s3_key='wrod.json',
-                        prefix='word',
-                        partitions=partitions)
+        if len(protagonist_words) > 0:
+            partitions['protagonist'] = 1
+            save_data_in_s3(content=protagonist_words,
+                            s3_bucket=args.bucket,
+                            s3_key='word.json',
+                            prefix='word',
+                            partitions=partitions)
+        if len(non_protagonist_words) > 0:
+            partitions['protagonist'] = 0
+            save_data_in_s3(content=non_protagonist_words,
+                            s3_bucket=args.bucket,
+                            s3_key='word.json',
+                            prefix='word',
+                            partitions=partitions)
     finally:
         logger.save_to_s3()
 

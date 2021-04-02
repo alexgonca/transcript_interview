@@ -9,17 +9,17 @@ from parse_words import parse_words
 
 
 INIT_SCRIPT = """#!/bin/bash
-sudo apt update
-sudo apt install -y python3-pip unzip
-wget https://github.com/alexgonca/transcript_interview/archive/refs/heads/main.zip
-unzip main.zip
-rm main.zip
-find ./transcript_interview-main/* -maxdepth 0 -type d,f -exec mv -t ./ {{}} +
-rm -R ./transcript_interview-main
-wget https://raw.githubusercontent.com/internet-scholar/internet_scholar/master/requirements.txt -O requirements2.txt
-wget https://raw.githubusercontent.com/internet-scholar/internet_scholar/master/internet_scholar.py
-pip3 install --trusted-host pypi.python.org -r /home/ubuntu/requirements.txt
-pip3 install --trusted-host pypi.python.org -r /home/ubuntu/requirements2.txt
+sudo apt update && \
+sudo apt install -y python3-pip unzip && \
+wget https://github.com/alexgonca/transcript_interview/archive/refs/heads/main.zip && \
+unzip main.zip && \
+rm main.zip && \
+find ./transcript_interview-main/* -maxdepth 0 -type d,f -exec mv -t ./ {{}} + && \
+rm -R ./transcript_interview-main && \
+wget https://raw.githubusercontent.com/internet-scholar/internet_scholar/master/requirements.txt -O requirements2.txt && \
+wget https://raw.githubusercontent.com/internet-scholar/internet_scholar/master/internet_scholar.py && \
+pip3 install --trusted-host pypi.python.org -r /home/ubuntu/requirements.txt && \
+pip3 install --trusted-host pypi.python.org -r /home/ubuntu/requirements2.txt && \
 python3 cloud_transcriber.py -b {bucket} -i {identifier} -l {language} -s {speaker} -t {speaker_type} -d {performance_date} -p {project} -v {service}
 sudo shutdown -h now
 """
@@ -96,18 +96,28 @@ class Transcript:
                 delete_uploaded_file(identifier=identifier, service_config=self.config[service])
                 raise
         elif not parsed[service]:
-            words = parse_words(transcript=retrieved[service], speaker_type=speaker_type, service=service)
+            protagonist_words, non_protagonist_words = parse_words(transcript=retrieved[service],
+                                                                   speaker_type=speaker_type,
+                                                                   service=service)
             partitions = OrderedDict()
             partitions['project'] = project
             partitions['speaker'] = speaker
             partitions['performance_date'] = performance_date
             partitions['service'] = service
-            partitions['speaker_type'] = speaker_type
-            save_data_in_s3(content=words,
-                            s3_bucket=self.bucket,
-                            s3_key='wrod.json',
-                            prefix='word',
-                            partitions=partitions)
+            if len(protagonist_words) > 0:
+                partitions['protagonist'] = 1
+                save_data_in_s3(content=protagonist_words,
+                                s3_bucket=self.bucket,
+                                s3_key='word.json',
+                                prefix='word',
+                                partitions=partitions)
+            if len(non_protagonist_words) > 0:
+                partitions['protagonist'] = 0
+                save_data_in_s3(content=non_protagonist_words,
+                                s3_bucket=self.bucket,
+                                s3_key='word.json',
+                                prefix='word',
+                                partitions=partitions)
 
     def retrieve_transcript(self, project, speaker, performance_date,
                             filepath, speaker_type, language,
