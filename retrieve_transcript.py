@@ -14,7 +14,9 @@ sudo apt install -y python3-pip unzip
 cd /home/ubuntu
 wget https://github.com/alexgonca/transcript_interview/archive/refs/heads/main.zip
 unzip main.zip
-cd transcript_interview-main
+rm main.zip
+find ./transcript_interview-main/* -maxdepth 0 -type d,f -exec mv -t ./ {} +
+rm -R ./transcript_interview-main
 wget https://raw.githubusercontent.com/internet-scholar/internet_scholar/master/requirements.txt -O requirements2.txt
 wget https://raw.githubusercontent.com/internet-scholar/internet_scholar/master/internet_scholar.py
 pip3 install --trusted-host pypi.python.org -r /home/ubuntu/transcript_interview-main/requirements.txt
@@ -54,13 +56,13 @@ class Transcript:
                                       parsed, language, speaker, speaker_type, filepath, original_file=None):
         size = 8
         if service == "microsoft":
-            from microsoft_transcribe import upload_audio_file
+            from microsoft_transcribe import upload_audio_file, delete_uploaded_file
         elif service == "google":
-            from google_transcribe import upload_audio_file
+            from google_transcribe import upload_audio_file, delete_uploaded_file
         elif service == "aws":
-            from aws_transcribe import upload_audio_file
+            from aws_transcribe import upload_audio_file, delete_uploaded_file
         elif service == "ibm":
-            from ibm_transcribe import upload_audio_file
+            from ibm_transcribe import upload_audio_file, delete_uploaded_file
             size = 10
             if Path(filepath).stat().st_size >= 1073741824:
                 extension = Path(original_file).suffix[1:]
@@ -74,21 +76,24 @@ class Transcript:
 
         if not retrieved[service]:
             identifier = upload_audio_file(filepath=filepath, service_config=self.config[service])
-            instantiate_ec2(ami=self.config['aws']['ami'],
-                            key_name=self.config['aws']['key_name'],
-                            security_group=self.config['aws']['security_group'],
-                            iam=self.config['aws']['iam'],
-                            instance_type='t3a.nano',
-                            size=size,
-                            init_script=INIT_SCRIPT.format(bucket=self.bucket,
-                                                           identifier=identifier,
-                                                           language=language,
-                                                           speaker=speaker,
-                                                           speaker_type=speaker_type,
-                                                           performance_date=performance_date,
-                                                           project=project,
-                                                           service=service),
-                            name=f"{service}_transcribe")
+            try:
+                instantiate_ec2(ami=self.config['aws']['ami'],
+                                key_name=self.config['aws']['key_name'],
+                                security_group=self.config['aws']['security_group'],
+                                iam=self.config['aws']['iam'],
+                                instance_type='t3a.nano',
+                                size=size,
+                                init_script=INIT_SCRIPT.format(bucket=self.bucket,
+                                                               identifier=identifier,
+                                                               language=language,
+                                                               speaker=speaker,
+                                                               speaker_type=speaker_type,
+                                                               performance_date=performance_date,
+                                                               project=project,
+                                                               service=service),
+                                name=f"{service}_transcribe", simulation=True)
+            finally:
+                delete_uploaded_file(identifier=identifier, service_config=self.config[service])
         elif not parsed[service]:
             words = parse_words(transcript=retrieved[service], speaker_type=speaker_type, service=service)
             partitions = OrderedDict()

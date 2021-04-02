@@ -144,7 +144,11 @@ def retrieve_transcript(identifier, language, speaker_type, service_config):
         finally:
             delete_all_transcriptions(api)
     finally:
-        blob_service_client = BlobServiceClient.from_connection_string(service_config['connection_string'])
-        container_client = blob_service_client.get_container_client(identifier)
-        container_client.delete_container()
+        delete_uploaded_file(identifier, service_config)
     return transcript
+
+
+def delete_uploaded_file(identifier, service_config):
+    blob_service_client = BlobServiceClient.from_connection_string(service_config['connection_string'])
+    container_client = blob_service_client.get_container_client(identifier)
+    container_client.delete_container()

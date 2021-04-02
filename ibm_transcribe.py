@@ -65,3 +65,7 @@ def retrieve_transcript(identifier, language, speaker_type, service_config, phon
     else:
         return recognition_job
 
+
+def delete_uploaded_file(identifier, service_config):
+    print("This is just a place holder because the file has already been deleted.")
+

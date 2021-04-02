@@ -8,28 +8,15 @@ import json
 
 
 def upload_audio_file(filepath, service_config):
-    json_string = json.dumps(service_config)
-    Path('./tmp/').mkdir(parents=True, exist_ok=True)
-    temp_file = f"./tmp/{uuid.uuid4()}.json"
-    with open(temp_file, 'w', encoding="utf-8") as json_file:
-        json_file.write(json_string)
-    try:
-        storage_client = storage.Client.from_service_account_json(temp_file)
-        bucket_name = str(uuid.uuid4())
-        bucket = storage_client.bucket(bucket_name)
-        blob = bucket.blob("audio.wav")
-        blob.upload_from_filename(filepath)
-    finally:
-        shutil.rmtree('./tmp')
+    storage_client = get_google_client(type="storage", service_config=service_config)
+    bucket_name = str(uuid.uuid4())
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob("audio.wav")
+    blob.upload_from_filename(filepath)
     return bucket_name
 
 
 def retrieve_transcript(identifier, language, speaker_type, service_config):
-    json_string = json.dumps(service_config)
-    Path('./tmp/').mkdir(parents=True, exist_ok=True)
-    temp_file = f"./tmp/{uuid.uuid4()}.json"
-    with open(temp_file, 'w', encoding="utf-8") as json_file:
-        json_file.write(json_string)
     try:
         gcs_uri = f"gs://{identifier}/audio.wav"
         audio = speech.RecognitionAudio(uri=gcs_uri)
@@ -51,14 +38,33 @@ def retrieve_transcript(identifier, language, speaker_type, service_config):
             )
         else:
             raise TypeError('unknown speaker type: {speaker}'.format(speaker=speaker_type))
-        speech_client = speech.SpeechClient.from_service_account_json(temp_file)
+        speech_client = get_google_client(type="speech", service_config=service_config)
         operation = speech_client.long_running_recognize(config=recognition_config, audio=audio)
         response = operation.result()
         response_dict = MessageToDict(response.__class__.pb(response))
     finally:
-        storage_client = storage.Client.from_service_account_json(temp_file)
-        bucket = storage_client.bucket(identifier)
-        blob = bucket.blob("audio.wav")
-        blob.delete()
-        shutil.rmtree('./tmp')
+        delete_uploaded_file(identifier, service_config)
     return response_dict
+
+
+def get_google_client(type, service_config):
+    json_string = json.dumps(service_config)
+    Path('./local_credentials/').mkdir(parents=True, exist_ok=True)
+    temp_file = f"./local_credentials/{uuid.uuid4()}.json"
+    with open(temp_file, 'w', encoding="utf-8") as json_file:
+        json_file.write(json_string)
+    if type == "storage":
+        client = storage.Client.from_service_account_json(temp_file)
+    elif type == "speech":
+        client = speech.SpeechClient.from_service_account_json(temp_file)
+    else:
+        client = None
+    shutil.rmtree('./local_credentials')
+    return client
+
+
+def delete_uploaded_file(identifier, service_config):
+    storage_client = get_google_client(type="storage", service_config=service_config)
+    bucket = storage_client.bucket(identifier)
+    blob = bucket.blob("audio.wav")
+    blob.delete()

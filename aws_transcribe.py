@@ -236,9 +236,12 @@ def retrieve_transcript(identifier, language, speaker_type, service_config):
         delete_job(job_name_simple, transcribe_client)
     finally:
         logging.info("Deleting demo bucket.")
-        s3_resource = boto3.resource('s3')
-        bucket = s3_resource.Bucket(identifier)
-        bucket.objects.delete()
-        bucket.delete()
+        delete_uploaded_file(identifier, service_config)
     return transcript_simple
 
+
+def delete_uploaded_file(identifier, service_config):
+    s3_resource = boto3.resource('s3')
+    bucket = s3_resource.Bucket(identifier)
+    bucket.objects.delete()
+    bucket.delete()
