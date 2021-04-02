@@ -6,7 +6,6 @@ import logging
 
 
 # todo create routine to export data as csv
-# todo test with audio samples
 
 def main():
     parser = argparse.ArgumentParser()

@@ -42,9 +42,23 @@ class Transcript:
             else:
                 raise
         else:
-            parsed[service] = s3_key_exists(self.bucket,
-                                            f'word/project={project}/speaker={speaker}/performance_date={performance_date}/'
-                                            f'service={service}/speaker_type={speaker_type}/word.json.bz2')
+            if speaker_type in ('single', 'interviewee'):
+                parsed[service] = s3_key_exists(self.bucket,
+                                                f'word/project={project}/speaker={speaker}/performance_date={performance_date}/'
+                                                f'service={service}/protagonist=1/word.json.bz2')
+            elif speaker_type == 'interviewer':
+                parsed[service] = s3_key_exists(self.bucket,
+                                                f'word/project={project}/speaker={speaker}/performance_date={performance_date}/'
+                                                f'service={service}/protagonist=0/word.json.bz2')
+            elif speaker_type == 'both':
+                parsed[service] = s3_key_exists(self.bucket,
+                                                f'word/project={project}/speaker={speaker}/performance_date={performance_date}/'
+                                                f'service={service}/protagonist=1/word.json.bz2') or \
+                                  s3_key_exists(self.bucket,
+                                                f'word/project={project}/speaker={speaker}/performance_date={performance_date}/'
+                                                f'service={service}/protagonist=0/word.json.bz2')
+            else:
+                raise TypeError("Unknown speaker type")
 
     # todo prevent two competing servers
     # todo split requirements.txt in several files
@@ -91,7 +105,7 @@ class Transcript:
                                                                project=project,
                                                                service=service),
                                 name=f"{service}_transcribe",
-                                simulation=True)
+                                simulation=False)
             except:
                 delete_uploaded_file(identifier=identifier, service_config=self.config[service])
                 raise
@@ -152,6 +166,7 @@ class Transcript:
                                      retrieved=retrieved, parsed=parsed)
 
         destination = ""
+        created_audio = False
         if (microsoft and not retrieved["microsoft"]) or (google and not retrieved["google"]) or \
                 (aws and not retrieved["aws"]) or (ibm and not retrieved["ibm"]):
             extension = Path(filepath).suffix[1:]
@@ -160,7 +175,7 @@ class Transcript:
             Path('./audio/').mkdir(parents=True, exist_ok=True)
             destination = f"./audio/{uuid.uuid4()}.wav"
             sound.export(destination, format="wav")
-
+            created_audio = True
         try:
             if microsoft:
                 self.instantiate_cloud_transcriber(service="microsoft",
@@ -204,4 +219,5 @@ class Transcript:
                                                    speaker_type=speaker_type,
                                                    filepath=destination)
         finally:
-            shutil.rmtree("./audio")
+            if created_audio:
+                shutil.rmtree("./audio")
