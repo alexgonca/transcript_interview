@@ -2,9 +2,40 @@ from pydub import AudioSegment
 from pathlib import Path
 import shutil
 import uuid
-from internet_scholar import read_dict_from_s3, s3_key_exists, save_data_in_s3, instantiate_ec2
+from internet_scholar import read_dict_from_s3, s3_key_exists, save_data_in_s3, instantiate_ec2, AthenaDatabase
 from collections import OrderedDict
 from transcriber_parser import parse_words
+import csv
+import os
+
+
+SELECT_TRANSCRIPT = """with updated_word as
+(select
+       start_time / ({interval_in_seconds} * 1000) as time_frame,
+       if(protagonist='1', word, upper(word)) as word,
+       start_time,
+       end_time,
+       service
+from transcriptions.word
+where
+      project = '{project}' and
+      speaker = '{speaker}' and
+      performance_date = '{performance_date}'
+order by start_time, seq_num)
+select
+    time '00:00:00' + time_frame * {interval_in_seconds} * interval '1' second as time_frame,
+    array_join(array_remove(array_agg(if(service='microsoft', word, '')), ''), ' ') as microsoft,
+    array_join(array_remove(array_agg(if(service='google', word, '')), ''), ' ') as google,
+    array_join(array_remove(array_agg(if(service='aws', word, '')), ''), ' ') as aws,
+    array_join(array_remove(array_agg(if(service='ibm', word, '')), ''), ' ') as ibm,
+    '' as comments
+from updated_word
+group by time_frame
+order by time_frame;"""
+
+
+SELECT_ALL_TRANSCRIPTS = """select distinct project, speaker, performance_date
+from word {where_clause} order by project, speaker, performance_date;"""
 
 
 class Transcript:
@@ -188,3 +219,31 @@ class Transcript:
         finally:
             if created_audio:
                 shutil.rmtree("./audio")
+
+    def export_csv(self, project=None, speaker=None, performance_date=None, interval_in_seconds=10):
+        athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
+        athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE word")
+
+        where_clause = ""
+        if project is not None:
+            where_clause = f"AND project = {project} "
+        if speaker is not None:
+            where_clause = f"{where_clause}AND speaker = {speaker} "
+        if performance_date is not None:
+            where_clause = f"{where_clause}AND performance_date = {performance_date} "
+        where_clause = where_clause[4:]
+
+        tmp_file = athena_db.query_athena_and_download(query_string=SELECT_ALL_TRANSCRIPTS.format(where_clause=where_clause),
+                                                       filename='selected_transcripts.csv')
+        with open(tmp_file) as csvfile:
+            reader = csv.DictReader(csvfile,
+                                    fieldnames=('project', 'speaker', 'performance_date'))
+            Path("./csv/").mkdir(parents=True, exist_ok=True)
+            for row in reader:
+                filename = f"{row['project']}_{row['speaker']}_{row['performance_date']}.csv"
+                new_file = athena_db.query_athena_and_download(SELECT_TRANSCRIPT.format(project=row['project'],
+                                                                                        speaker=row['speaker'],
+                                                                                        performance_date=row['performance_date'],
+                                                                                        interval_in_seconds=interval_in_seconds),
+                                                               filename)
+                os.replace(new_file, f'./csv/{filename}')
