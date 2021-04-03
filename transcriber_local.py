@@ -231,7 +231,8 @@ class Transcript:
             where_clause = f"{where_clause}AND speaker = '{speaker}' "
         if performance_date is not None:
             where_clause = f"{where_clause}AND performance_date = '{performance_date}' "
-        where_clause = where_clause[4:]
+        if where_clause != '':
+            where_clause = f"where {where_clause[4:]}"
 
         tmp_file = athena_db.query_athena_and_download(query_string=SELECT_ALL_TRANSCRIPTS.format(where_clause=where_clause),
                                                        filename='selected_transcripts.csv')
