@@ -226,11 +226,11 @@ class Transcript:
 
         where_clause = ""
         if project is not None:
-            where_clause = f"AND project = {project} "
+            where_clause = f"AND project = '{project}' "
         if speaker is not None:
-            where_clause = f"{where_clause}AND speaker = {speaker} "
+            where_clause = f"{where_clause}AND speaker = '{speaker}' "
         if performance_date is not None:
-            where_clause = f"{where_clause}AND performance_date = {performance_date} "
+            where_clause = f"{where_clause}AND performance_date = '{performance_date}' "
         where_clause = where_clause[4:]
 
         tmp_file = athena_db.query_athena_and_download(query_string=SELECT_ALL_TRANSCRIPTS.format(where_clause=where_clause),
@@ -240,7 +240,7 @@ class Transcript:
                                     fieldnames=('project', 'speaker', 'performance_date'))
             Path("./csv/").mkdir(parents=True, exist_ok=True)
             for row in reader:
-                filename = f"{row['project']}_{row['speaker']}_{row['performance_date']}.csv"
+                filename = f"{row['project']}_{row['speaker']}_{row['performance_date']}_{interval_in_seconds}.csv"
                 new_file = athena_db.query_athena_and_download(SELECT_TRANSCRIPT.format(project=row['project'],
                                                                                         speaker=row['speaker'],
                                                                                         performance_date=row['performance_date'],
