@@ -36,10 +36,6 @@ class Transcript:
             else:
                 raise TypeError("Unknown speaker type")
 
-    # todo prevent two competing servers
-    # todo split requirements.txt in several files
-    # todo create tables for each service in Athena
-    # todo import existing data
 
     def instantiate_cloud_transcriber(self, service, retrieved, project, performance_date,
                                       parsed, language, speaker, speaker_type, filepath, original_file=None):

@@ -6,8 +6,6 @@ import logging
 import datetime
 
 
-# todo create routine to export data as csv
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--bucket', help='S3 Bucket with data', required=True)

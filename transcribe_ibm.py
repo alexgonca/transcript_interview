@@ -29,8 +29,10 @@ def retrieve_transcript(identifier, language, speaker_type, service_config, phon
     extension = Path(s3_items[1]).suffix[1:]
     if extension == 'wav':
         local_file = f"{uuid.uuid4()}.wav"
+        content_type="audio/wav"
     else:
         local_file = f"{uuid.uuid4()}.mp3"
+        content_type="audio/mp3"
     bucket.download_file(s3_items[1], local_file)
     bucket.objects.delete()
     bucket.delete()
@@ -49,7 +51,7 @@ def retrieve_transcript(identifier, language, speaker_type, service_config, phon
         recognition_job = speech_to_text.create_job(
             audio_file,
             model=model,
-            content_type='audio/wav',
+            content_type=content_type,
             results_ttl=60,
             inactivity_timeout=-1,
             timestamps=True,
