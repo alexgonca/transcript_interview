@@ -215,8 +215,8 @@ def delete_job(job_name, transcribe_client):
 
 def upload_audio_file(filepath, service_config):
     bucket_name = str(uuid.uuid4())
-    location = {'LocationConstraint': service_config['aws_region']}
-    s3_resource = boto3.resource('s3', region_name=service_config['aws_region'])
+    location = {'LocationConstraint': service_config['region']}
+    s3_resource = boto3.resource('s3', region_name=service_config['region'])
     bucket = s3_resource.create_bucket(Bucket=bucket_name, CreateBucketConfiguration=location)
 
     media_object_key = "audio.wav"
