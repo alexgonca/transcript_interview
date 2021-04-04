@@ -237,8 +237,7 @@ class Transcript:
         tmp_file = athena_db.query_athena_and_download(query_string=SELECT_ALL_TRANSCRIPTS.format(where_clause=where_clause),
                                                        filename='selected_transcripts.csv')
         with open(tmp_file) as csvfile:
-            reader = csv.DictReader(csvfile,
-                                    fieldnames=('project', 'speaker', 'performance_date'))
+            reader = csv.DictReader(csvfile)
             Path("./csv/").mkdir(parents=True, exist_ok=True)
             for row in reader:
                 filename = f"{row['project']}_{row['speaker']}_{row['performance_date']}_{interval_in_seconds}.csv"

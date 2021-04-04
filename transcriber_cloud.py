@@ -1,5 +1,4 @@
 from internet_scholar import AthenaLogger, read_dict_from_s3, save_data_in_s3
-from transcriber_parser import parse_words
 import argparse
 from collections import OrderedDict
 import logging
@@ -64,32 +63,6 @@ def main():
                         s3_key='transcript.json',
                         prefix='transcript',
                         partitions=partitions)
-
-        logging.info(f'Parse words')
-        protagonist_words, non_protagonist_words = parse_words(transcript=transcript,
-                                                               speaker_type=args.speaker_type,
-                                                               service=args.service)
-        partitions = OrderedDict()
-        partitions['project'] = args.project
-        partitions['speaker'] = args.speaker
-        partitions['performance_date'] = args.performance_date
-        partitions['service'] = args.service
-        logging.info('Save words on S3')
-        if len(protagonist_words) > 0:
-            partitions['protagonist'] = 1
-            save_data_in_s3(content=protagonist_words,
-                            s3_bucket=args.bucket,
-                            s3_key='word.json',
-                            prefix='word',
-                            partitions=partitions)
-        if len(non_protagonist_words) > 0:
-            partitions['protagonist'] = 0
-            save_data_in_s3(content=non_protagonist_words,
-                            s3_bucket=args.bucket,
-                            s3_key='word.json',
-                            prefix='word',
-                            partitions=partitions)
-
     finally:
         delete_uploaded_file(args.identifier, config[args.service])
         logger.save_to_s3()
