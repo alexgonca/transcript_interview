@@ -134,9 +134,28 @@ class Transcript:
                                 prefix='word',
                                 partitions=partitions)
 
-    def retrieve_transcript(self, project, speaker, performance_date,
-                            speaker_type, language=None, filepath=None,
+    def retrieve_transcript(self, project, speaker, performance_date, language=None,
+                            both=None, single=None, interviewee=None, interviewer=None,
                             microsoft=False, ibm=False, aws=False, google=False):
+        if single is not None:
+            self.inner_retrieve_transcript(project=project, speaker=speaker, performance_date=performance_date,
+                                           speaker_type='single', language=language, filepath=single,
+                                           microsoft=microsoft, ibm=ibm, aws=aws, google=google)
+        elif both is not None:
+            self.inner_retrieve_transcript(project=project, speaker=speaker, performance_date=performance_date,
+                                           speaker_type='both', language=language, filepath=both,
+                                           microsoft=microsoft, ibm=ibm, aws=aws, google=google)
+        elif interviewee is not None:
+            self.inner_retrieve_transcript(project=project, speaker=speaker, performance_date=performance_date,
+                                           speaker_type='interviewee', language=language, filepath=interviewee,
+                                           microsoft=microsoft, ibm=ibm, aws=aws, google=google)
+            self.inner_retrieve_transcript(project=project, speaker=speaker, performance_date=performance_date,
+                                           speaker_type='interviewer', language=language, filepath=interviewer,
+                                           microsoft=microsoft, ibm=ibm, aws=aws, google=google)
+
+    def inner_retrieve_transcript(self, project, speaker, performance_date,
+                                  speaker_type, language=None, filepath=None,
+                                  microsoft=False, ibm=False, aws=False, google=False):
         retrieved = {
             'microsoft': None,
             'google': None,
