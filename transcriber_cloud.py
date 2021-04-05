@@ -37,34 +37,36 @@ def main():
         else:
             raise Exception(f"Invalid service: {args.service}")
 
-        logging.info(f'Retrieve transcript on {args.service}')
-        metadata = {
-            'started_at': str(datetime.datetime.utcnow()),
-            'language': args.language,
-            'audio_storage': args.identifier
-        }
-        transcript = retrieve_transcript(identifier=args.identifier,
-                                         language=args.language,
-                                         speaker_type=args.speaker_type,
-                                         service_config=config[args.service])
-        metadata['finished_at'] = str(datetime.datetime.utcnow())
-        transcript['metadata_internet_scholar'] = metadata
+        try:
+            logging.info(f'Retrieve transcript on {args.service}')
+            metadata = {
+                'started_at': str(datetime.datetime.utcnow()),
+                'language': args.language,
+                'audio_storage': args.identifier
+            }
+            transcript = retrieve_transcript(identifier=args.identifier,
+                                             language=args.language,
+                                             speaker_type=args.speaker_type,
+                                             service_config=config[args.service])
+            metadata['finished_at'] = str(datetime.datetime.utcnow())
+            transcript['metadata_internet_scholar'] = metadata
 
-        logging.info(f'Succesfully retrieved transcript on {args.service}')
-        partitions = OrderedDict()
-        partitions['service'] = args.service
-        partitions['project'] = args.project
-        partitions['speaker'] = args.speaker
-        partitions['performance_date'] = args.performance_date
-        partitions['speaker_type'] = args.speaker_type
-        logging.info(f'Save transcript on S3')
-        save_data_in_s3(content=transcript,
-                        s3_bucket=args.bucket,
-                        s3_key='transcript.json',
-                        prefix='transcript',
-                        partitions=partitions)
+            logging.info(f'Succesfully retrieved transcript on {args.service}')
+            partitions = OrderedDict()
+            partitions['service'] = args.service
+            partitions['project'] = args.project
+            partitions['speaker'] = args.speaker
+            partitions['performance_date'] = args.performance_date
+            partitions['speaker_type'] = args.speaker_type
+            logging.info(f'Save transcript on S3')
+            save_data_in_s3(content=transcript,
+                            s3_bucket=args.bucket,
+                            s3_key='transcript.json',
+                            prefix='transcript',
+                            partitions=partitions)
+        finally:
+            delete_uploaded_file(args.identifier, config[args.service])
     finally:
-        delete_uploaded_file(args.identifier, config[args.service])
         logger.save_to_s3()
 
 

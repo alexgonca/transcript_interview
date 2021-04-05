@@ -31,11 +31,15 @@ select
     '' as comments
 from updated_word
 group by time_frame
-order by time_frame;"""
+order by time_frame"""
 
 
 SELECT_ALL_TRANSCRIPTS = """select distinct project, speaker, performance_date
-from word {where_clause} order by project, speaker, performance_date;"""
+from word {where_clause} order by project, speaker, performance_date"""
+
+
+SELECT_NON_PARSED_TRANSCRIPTS = """
+"""
 
 
 class Transcript:
@@ -66,7 +70,6 @@ class Transcript:
                                                 f'service={service}/protagonist=0/word.json.bz2')
             else:
                 raise TypeError("Unknown speaker type")
-
 
     def instantiate_cloud_transcriber(self, service, retrieved, project, performance_date,
                                       parsed, language, speaker, speaker_type, filepath, original_file=None):
