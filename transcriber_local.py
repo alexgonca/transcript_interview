@@ -213,10 +213,12 @@ class Transcript:
             reader = csv.DictReader(unparsed_file)
             database_has_changed = False
             try:
+                print("Parse words...")
                 for row in reader:
+                    print(f"{row['speaker']}_{row['service']}_{row['speaker_type']}")
                     transcript = read_dict_from_s3(self.bucket,
-                                                   f"transcript/service={row['service']}/project={project}/speaker={speaker}/"
-                                                   f"performance_date={performance_date}/speaker_type={row['speaker_type']}/transcript.json.bz2",
+                                                   f"transcript/service={row['service']}/project={project}/speaker={row['speaker']}/"
+                                                   f"performance_date={row['performance_date']}/speaker_type={row['speaker_type']}/transcript.json.bz2",
                                                    compressed=True)
                     protagonist_words, non_protagonist_words = parse_words(transcript=transcript,
                                                                            speaker_type=row['speaker_type'],
@@ -256,7 +258,10 @@ class Transcript:
         with open(tmp_file) as csvfile:
             reader = csv.DictReader(csvfile)
             Path("./csv/").mkdir(parents=True, exist_ok=True)
+            print("Export CSVs...")
             for row in reader:
+                print(f"{row['project']}_{row['speaker']}_{row['performance_date']}")
+
                 filename = f"{row['project']}_{row['speaker']}_{row['performance_date']}_{interval_in_seconds}.csv"
                 new_file = athena_db.query_athena_and_download(SELECT_TRANSCRIPT.format(project=row['project'],
                                                                                         speaker=row['speaker'],
