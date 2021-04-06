@@ -93,7 +93,7 @@ def parse_words_google(transcript, speaker_type):
 
 def parse_words_ibm(transcript, speaker_type):
     words = []
-    if speaker_type in ("interviewee", "both"):
+    if speaker_type in ("interviewee", "both", "single"):
         protagonist = 1
     else:
         protagonist = 0

@@ -204,11 +204,15 @@ class Transcript:
     def parse_words(self, project=None, speaker=None, performance_date=None):
         athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
         athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE metadata")
+        athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE word")
 
         where_clause = self.get_where_clause(project=project, speaker=speaker, performance_date=performance_date)
-        unparsed_records = athena_db.query_athena_and_download(
-            query_string=SELECT_NON_PARSED_TRANSCRIPTS.format(where_clause=where_clause),
-            filename='unparsed_records.csv')
+        if where_clause == '':
+            select = SELECT_NON_PARSED_TRANSCRIPTS.format(where_clause=where_clause).replace(' and ', ' where ', 1).replace('\n\n','\n')
+        else:
+            select = SELECT_NON_PARSED_TRANSCRIPTS.format(where_clause=where_clause)
+        unparsed_records = athena_db.query_athena_and_download(query_string=select,
+                                                               filename='unparsed_records.csv')
         with open(unparsed_records) as unparsed_file:
             reader = csv.DictReader(unparsed_file)
             database_has_changed = False
@@ -217,16 +221,16 @@ class Transcript:
                 for row in reader:
                     print(f"{row['speaker']}_{row['service']}_{row['speaker_type']}")
                     transcript = read_dict_from_s3(self.bucket,
-                                                   f"transcript/service={row['service']}/project={project}/speaker={row['speaker']}/"
+                                                   f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/"
                                                    f"performance_date={row['performance_date']}/speaker_type={row['speaker_type']}/transcript.json.bz2",
                                                    compressed=True)
                     protagonist_words, non_protagonist_words = parse_words(transcript=transcript,
                                                                            speaker_type=row['speaker_type'],
                                                                            service=row['service'])
                     partitions = OrderedDict()
-                    partitions['project'] = project
-                    partitions['speaker'] = speaker
-                    partitions['performance_date'] = performance_date
+                    partitions['project'] = row['project']
+                    partitions['speaker'] = row['speaker']
+                    partitions['performance_date'] = row['performance_date']
                     partitions['service'] = row['service']
                     if len(protagonist_words) > 0:
                         partitions['protagonist'] = 1
