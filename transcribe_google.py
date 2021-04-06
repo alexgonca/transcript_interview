@@ -12,6 +12,8 @@ def upload_audio_file(filepath, service_config):
     bucket_name = str(uuid.uuid4())
     bucket = storage_client.create_bucket(bucket_name, location="us")
     blob = bucket.blob("audio.wav")
+    storage.blob._DEFAULT_CHUNKSIZE = 2097152 # 1024 * 1024 B * 2 = 2 MB
+    storage.blob._MAX_MULTIPART_SIZE = 2097152 # 2 MB
     blob.upload_from_filename(filepath)
     return bucket_name
 
