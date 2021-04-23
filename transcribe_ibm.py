@@ -5,6 +5,7 @@ import json
 import boto3
 import uuid
 from pathlib import Path
+import logging
 
 
 def upload_audio_file(filepath, service_config):
@@ -24,6 +25,7 @@ def upload_audio_file(filepath, service_config):
 
 def retrieve_transcript(identifier, language, speaker_type, service_config, phone=False):
     try:
+        logging.info(f"Identifier outside delete_uploaded_file: {identifier}")
         s3_items = identifier.split('/')
         s3_resource = boto3.resource('s3')
         bucket = s3_resource.Bucket(s3_items[0])
@@ -71,6 +73,7 @@ def retrieve_transcript(identifier, language, speaker_type, service_config, phon
 
 
 def delete_uploaded_file(identifier, service_config):
+    logging.info(f"Identifier inside delete_uploaded_file: {identifier}")
     s3_items = identifier.split('/')
     s3_resource = boto3.resource('s3')
     bucket = s3_resource.Bucket(s3_items[0])
