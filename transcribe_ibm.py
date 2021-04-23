@@ -24,21 +24,17 @@ def upload_audio_file(filepath, service_config):
 
 
 def retrieve_transcript(identifier, language, speaker_type, service_config, phone=False):
-    try:
-        logging.info(f"Identifier outside delete_uploaded_file: {identifier}")
-        s3_items = identifier.split('/')
-        s3_resource = boto3.resource('s3')
-        bucket = s3_resource.Bucket(s3_items[0])
-        extension = Path(s3_items[1]).suffix[1:]
-        if extension == 'wav':
-            local_file = f"{uuid.uuid4()}.wav"
-            content_type="audio/wav"
-        else:
-            local_file = f"{uuid.uuid4()}.mp3"
-            content_type="audio/mp3"
-        bucket.download_file(s3_items[1], local_file)
-    finally:
-        delete_uploaded_file(identifier=identifier, service_config=service_config)
+    s3_items = identifier.split('/')
+    s3_resource = boto3.resource('s3')
+    bucket = s3_resource.Bucket(s3_items[0])
+    extension = Path(s3_items[1]).suffix[1:]
+    if extension == 'wav':
+        local_file = f"{uuid.uuid4()}.wav"
+        content_type="audio/wav"
+    else:
+        local_file = f"{uuid.uuid4()}.mp3"
+        content_type="audio/mp3"
+    bucket.download_file(s3_items[1], local_file)
     authenticator = IAMAuthenticator(service_config["api_key"])
     speech_to_text = SpeechToTextV1(authenticator=authenticator)
 
@@ -73,7 +69,6 @@ def retrieve_transcript(identifier, language, speaker_type, service_config, phon
 
 
 def delete_uploaded_file(identifier, service_config):
-    logging.info(f"Identifier inside delete_uploaded_file: {identifier}")
     s3_items = identifier.split('/')
     s3_resource = boto3.resource('s3')
     bucket = s3_resource.Bucket(s3_items[0])
