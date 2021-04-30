@@ -149,7 +149,7 @@ class Transcript:
             sound = sound.set_channels(1)
             Path('./audio/').mkdir(parents=True, exist_ok=True)
             destination = f"./audio/{uuid.uuid4()}.wav"
-            sound.export(destination, format="wav")
+            sound.export(destination, format="wav", parameters=['-acodec', 'pcm_s16le'])
             created_audio = True
         try:
             if microsoft and not retrieved['microsoft']:
