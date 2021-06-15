@@ -51,6 +51,7 @@ order by project, speaker, service, speaker_type"""
 
 class Transcript:
     def __init__(self, bucket):
+        self.instance_type = 't4g.nano'
         self.bucket = bucket
         self.config = read_dict_from_s3(bucket=self.bucket, key='config/config.json')
 
@@ -86,7 +87,7 @@ class Transcript:
                             security_group=self.config['aws']['security_group'],
                             iam=self.config['aws']['iam'],
                             parameters=parameters,
-                            instance_type='t3a.nano',
+                            instance_type=self.instance_type,
                             size=size,
                             init_script="https://raw.githubusercontent.com/alexgonca/transcript_interview/main/init_server.sh",
                             name=f"{speaker}_{service}_{speaker_type}")
@@ -151,6 +152,8 @@ class Transcript:
             destination = f"./audio/{uuid.uuid4()}.wav"
             sound.export(destination, format="wav", parameters=['-acodec', 'pcm_s16le'])
             created_audio = True
+            if sound.duration_seconds > 13200.0:    # more than 3 hours and 40 minutes
+                self.instance_type = 't4g.micro'
         try:
             if microsoft and not retrieved['microsoft']:
                 self.instantiate_cloud_transcriber(service="microsoft",
