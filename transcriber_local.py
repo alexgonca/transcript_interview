@@ -51,7 +51,7 @@ order by project, speaker, service, speaker_type"""
 
 class Transcript:
     def __init__(self, bucket):
-        self.instance_type = 't4g.nano'
+        self.instance_type = 't3a.nano'
         self.bucket = bucket
         self.config = read_dict_from_s3(bucket=self.bucket, key='config/config.json')
 
@@ -153,7 +153,7 @@ class Transcript:
             sound.export(destination, format="wav", parameters=['-acodec', 'pcm_s16le'])
             created_audio = True
             if sound.duration_seconds > 13200.0:    # more than 3 hours and 40 minutes
-                self.instance_type = 't4g.micro'
+                self.instance_type = 't3a.micro'
         try:
             if microsoft and not retrieved['microsoft']:
                 self.instantiate_cloud_transcriber(service="microsoft",
