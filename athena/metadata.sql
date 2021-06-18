@@ -6,7 +6,7 @@ CREATE EXTERNAL TABLE IF NOT EXISTS transcriptions.metadata (
         finished_at: timestamp
     >
 )
-PARTITIONED BY (service String, project String, speaker String, performance_date String, speaker_type String)
+PARTITIONED BY (service String, project String, speaker String, performance_date String, part int, speaker_type String)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 WITH SERDEPROPERTIES (
   'serialization.format' = '1',

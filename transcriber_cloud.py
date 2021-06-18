@@ -14,6 +14,7 @@ def main():
     parser.add_argument('-t', '--speaker_type', help="Speaker's type (interviewee, interviewer, single, both)",
                         required=True)
     parser.add_argument('-d', '--performance_date', help="Performance date", required=True)
+    parser.add_argument('-r', '--part', help="Part", required=True)
     parser.add_argument('-p', '--project', help="Project", required=True)
     parser.add_argument('-v', '--service', help="Service (aws, microsoft, google, ibm)", required=True)
     args = parser.parse_args()
@@ -21,7 +22,7 @@ def main():
     config = read_dict_from_s3(bucket=args.bucket, key='config/config.json')
 
     logger = AthenaLogger(
-        app_name=f"transcribe_{args.service}_{args.project}_{args.speaker}_{args.speaker_type}_{args.performance_date}",
+        app_name=f"transcribe_{args.service}_{args.project}_{args.speaker}_{args.speaker_type}_{args.performance_date}_{args.part}",
         s3_bucket=args.bucket,
         athena_db=config['aws']['athena'])
 
@@ -57,6 +58,7 @@ def main():
             partitions['project'] = args.project
             partitions['speaker'] = args.speaker
             partitions['performance_date'] = args.performance_date
+            partitions['part'] = args.part
             partitions['speaker_type'] = args.speaker_type
             logging.info(f'Save transcript on S3')
             save_data_in_s3(content=transcript,

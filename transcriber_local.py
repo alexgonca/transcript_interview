@@ -2,7 +2,7 @@ from pydub import AudioSegment
 from pathlib import Path
 import shutil
 import uuid
-from internet_scholar import read_dict_from_s3, s3_key_exists, save_data_in_s3, instantiate_ec2, AthenaDatabase
+from internet_scholar import read_dict_from_s3, s3_key_exists, save_data_in_s3, instantiate_ec2, AthenaDatabase, move_data_in_s3
 from collections import OrderedDict
 from transcriber_parser import parse_words
 import csv
@@ -55,7 +55,7 @@ class Transcript:
         self.bucket = bucket
         self.config = read_dict_from_s3(bucket=self.bucket, key='config/config.json')
 
-    def instantiate_cloud_transcriber(self, service, project, performance_date,
+    def instantiate_cloud_transcriber(self, service, project, performance_date, part,
                                       language, speaker, speaker_type, filepath, original_file=None):
         print(f"{speaker}_{service}_{speaker_type}")
         size = 8
@@ -81,7 +81,7 @@ class Transcript:
         identifier = upload_audio_file(filepath=filepath, service_config=self.config[service])
         try:
             parameters = f"{self.bucket} {identifier} {language} {speaker} {speaker_type} " \
-                         f"{performance_date} {project} {service}"
+                         f"{performance_date} {part} {project} {service}"
             instantiate_ec2(ami=self.config['aws']['ami'],
                             key_name=self.config['aws']['key_name'],
                             security_group=self.config['aws']['security_group'],
@@ -90,33 +90,33 @@ class Transcript:
                             instance_type=self.instance_type,
                             size=size,
                             init_script="https://raw.githubusercontent.com/alexgonca/transcript_interview/main/init_server.sh",
-                            name=f"{speaker}_{service}_{speaker_type}")
+                            name=f"{speaker}_{service}_{speaker_type}_{part}")
         except:
             delete_uploaded_file(identifier=identifier, service_config=self.config[service])
             raise
 
-    def retrieve_transcript(self, project, speaker, performance_date, language=None,
+    def retrieve_transcript(self, project, speaker, performance_date, part=1, language=None,
                             both=None, single=None, interviewee=None, interviewer=None,
                             microsoft=False, ibm=False, aws=False, google=False):
         if single is not None:
             self.inner_retrieve_transcript(project=project, speaker=speaker, performance_date=performance_date,
-                                           speaker_type='single', language=language, filepath=single,
+                                           speaker_type='single', part=part, language=language, filepath=single,
                                            microsoft=microsoft, ibm=ibm, aws=aws, google=google)
         if both is not None:
             self.inner_retrieve_transcript(project=project, speaker=speaker, performance_date=performance_date,
-                                           speaker_type='both', language=language, filepath=both,
+                                           speaker_type='both', part=part, language=language, filepath=both,
                                            microsoft=microsoft, ibm=ibm, aws=aws, google=google)
         if interviewee is not None:
             self.inner_retrieve_transcript(project=project, speaker=speaker, performance_date=performance_date,
-                                           speaker_type='interviewee', language=language, filepath=interviewee,
+                                           speaker_type='interviewee', part=part, language=language, filepath=interviewee,
                                            microsoft=microsoft, ibm=ibm, aws=aws, google=google)
         if interviewer is not None:
             self.inner_retrieve_transcript(project=project, speaker=speaker, performance_date=performance_date,
-                                           speaker_type='interviewer', language=language, filepath=interviewer,
+                                           speaker_type='interviewer', part=part, language=language, filepath=interviewer,
                                            microsoft=microsoft, ibm=ibm, aws=aws, google=google)
 
     def inner_retrieve_transcript(self, project, speaker, performance_date,
-                                  speaker_type, language=None, filepath=None,
+                                  speaker_type, part=1, language=None, filepath=None,
                                   microsoft=False, ibm=False, aws=False, google=False):
         retrieved = {
             'microsoft': False,
@@ -127,19 +127,19 @@ class Transcript:
         if microsoft:
             retrieved['microsoft'] = s3_key_exists(self.bucket,
                                                    f'transcript/service=microsoft/project={project}/speaker={speaker}/'
-                                                   f'performance_date={performance_date}/speaker_type={speaker_type}/transcript.json.bz2')
+                                                   f'performance_date={performance_date}/part={part}/speaker_type={speaker_type}/transcript.json.bz2')
         if google:
             retrieved['google'] = s3_key_exists(self.bucket,
                                                 f'transcript/service=google/project={project}/speaker={speaker}/'
-                                                f'performance_date={performance_date}/speaker_type={speaker_type}/transcript.json.bz2')
+                                                f'performance_date={performance_date}/part={part}/speaker_type={speaker_type}/transcript.json.bz2')
         if aws:
             retrieved['aws'] = s3_key_exists(self.bucket,
                                              f'transcript/service=aws/project={project}/speaker={speaker}/'
-                                             f'performance_date={performance_date}/speaker_type={speaker_type}/transcript.json.bz2')
+                                             f'performance_date={performance_date}/part={part}/speaker_type={speaker_type}/transcript.json.bz2')
         if ibm:
             retrieved['ibm'] = s3_key_exists(self.bucket,
                                              f'transcript/service=ibm/project={project}/speaker={speaker}/'
-                                             f'performance_date={performance_date}/speaker_type={speaker_type}/transcript.json.bz2')
+                                             f'performance_date={performance_date}/part={part}/speaker_type={speaker_type}/transcript.json.bz2')
 
         destination = ""
         created_audio = False
@@ -159,6 +159,7 @@ class Transcript:
                 self.instantiate_cloud_transcriber(service="microsoft",
                                                    project=project,
                                                    performance_date=performance_date,
+                                                   part=part,
                                                    language=language,
                                                    speaker=speaker,
                                                    speaker_type=speaker_type,
@@ -167,6 +168,7 @@ class Transcript:
                 self.instantiate_cloud_transcriber(service="google",
                                                    project=project,
                                                    performance_date=performance_date,
+                                                   part=part,
                                                    language=language,
                                                    speaker=speaker,
                                                    speaker_type=speaker_type,
@@ -175,6 +177,7 @@ class Transcript:
                 self.instantiate_cloud_transcriber(service="ibm",
                                                    project=project,
                                                    performance_date=performance_date,
+                                                   part=part,
                                                    language=language,
                                                    speaker=speaker,
                                                    speaker_type=speaker_type,
@@ -184,6 +187,7 @@ class Transcript:
                 self.instantiate_cloud_transcriber(service="aws",
                                                    project=project,
                                                    performance_date=performance_date,
+                                                   part=part,
                                                    language=language,
                                                    speaker=speaker,
                                                    speaker_type=speaker_type,
@@ -203,6 +207,41 @@ class Transcript:
         if where_clause != '':
             where_clause = f"where {where_clause[4:]}"
         return where_clause
+
+    def add_part_to_s3_path(self):
+        athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
+        #athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE metadata")
+        #athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE word")
+
+        metadata_records = athena_db.query_athena_and_download(query_string="select distinct service, project, "
+                                                                            "speaker, performance_date, speaker_type "
+                                                                            "from metadata "
+                                                                            "order by service, project, speaker, "
+                                                                            "performance_date, speaker_type",
+                                                               filename='metadata_records.csv')
+        with open(metadata_records) as metadata_file:
+            metadata_reader = csv.DictReader(metadata_file)
+            for row in metadata_reader:
+                move_data_in_s3(
+                    bucket_name=self.bucket,
+                    origin=f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/speaker_type={row['speaker_type']}/transcript.json.bz2",
+                    destination=f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/speaker_type={row['speaker_type']}/transcript.json.bz2"
+                )
+
+        words_records = athena_db.query_athena_and_download(query_string="select distinct project, speaker, "
+                                                                         "performance_date, service, protagonist "
+                                                                         "from word "
+                                                                         "order by project, speaker, performance_date, "
+                                                                         "service, protagonist",
+                                                            filename='words_records.csv')
+        with open(words_records) as words_file:
+            words_reader = csv.DictReader(words_file)
+            for row in words_reader:
+                move_data_in_s3(
+                    bucket_name=self.bucket,
+                    origin=f"word/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/service={row['service']}/protagonist={row['protagonist']}/word.json.bz2",
+                    destination=f"word/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/service={row['service']}/protagonist={row['protagonist']}/word.json.bz2"
+                )
 
     def parse_words(self, project=None, speaker=None, performance_date=None):
         athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
