@@ -11,5 +11,5 @@ wget https://raw.githubusercontent.com/internet-scholar/internet_scholar/master/
 wget https://raw.githubusercontent.com/internet-scholar/internet_scholar/master/internet_scholar.py && \
 pip3 install --trusted-host pypi.python.org -r /home/ubuntu/requirements_$8.txt && \
 pip3 install --trusted-host pypi.python.org -r /home/ubuntu/requirements2.txt && \
-python3 transcriber_cloud.py -b $1 -i $2 -l $3 -s $4 -t $5 -d $6 -r $7 -p $8 -v $9 && \
+python3 transcriber_cloud.py -b $1 -i $2 -l $3 -s $4 -t $5 -d $6 -r $7 -m $8 -c $9 -p ${10} -v ${11} && \
 sudo shutdown -h now

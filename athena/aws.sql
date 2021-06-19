@@ -46,7 +46,7 @@ CREATE EXTERNAL TABLE IF NOT EXISTS transcriptions.aws (
         finished_at: timestamp
     >
 )
-PARTITIONED BY (project String, speaker String, performance_date String, part int, speaker_type String)
+PARTITIONED BY (project String, speaker String, performance_date String, part int, speaker_type String, timeframe int, section int)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 WITH SERDEPROPERTIES (
   'serialization.format' = '1',

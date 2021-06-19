@@ -1,8 +1,9 @@
 from pydub import AudioSegment
+from pydub.utils import make_chunks
 from pathlib import Path
 import shutil
 import uuid
-from internet_scholar import read_dict_from_s3, s3_key_exists, save_data_in_s3, instantiate_ec2, AthenaDatabase, move_data_in_s3
+from internet_scholar import read_dict_from_s3, s3_prefix_exists, delete_s3_objects_by_prefix, save_data_in_s3, instantiate_ec2, AthenaDatabase, move_data_in_s3
 from collections import OrderedDict
 from transcriber_parser import parse_words
 import csv
@@ -48,16 +49,39 @@ from metadata
                 word.service = metadata.service)
 order by project, speaker, service, speaker_type"""
 
+SELECT_JOBS = """with job as (
+    select *
+    from (values {jobs_values}) 
+    AS t(service, project, speaker, performance_date, speaker_type, part, speaker_type, timeframe, section)
+)
+select service, project, speaker, performance_date, speaker_type, part, speaker_type, timeframe, section
+from job
+where not exists (
+    select *
+    from metadata
+    where
+          metadata.service = job.service and
+          metadata.project = job.project and
+          metadata.speaker = job.speaker and
+          metadata.performance_date = job.performance_date and
+          metadata.speaker_type = job.speaker_type and
+          metadata.part = job.part and
+          metadata.speaker_type = job.speaker_type and
+          metadata.timeframe = job.timeframe and
+          metadata.section = job.section
+    )"""
+
 
 class Transcript:
     def __init__(self, bucket):
         self.instance_type = 't3a.nano'
         self.bucket = bucket
         self.config = read_dict_from_s3(bucket=self.bucket, key='config/config.json')
+        self.repair_metadata = True
 
-    def instantiate_cloud_transcriber(self, service, project, performance_date, part,
-                                      language, speaker, speaker_type, filepath, original_file=None):
-        print(f"{speaker}_{service}_{speaker_type}")
+    def instantiate_cloud_transcriber(self, service, project, performance_date, part, timeframe, section,
+                                      language, speaker, speaker_type, filepath):
+        print(f"{speaker}_{service}_{speaker_type}_{part}_{section}")
         size = 8
         if service == "microsoft":
             from transcribe_microsoft import upload_audio_file, delete_uploaded_file
@@ -69,8 +93,8 @@ class Transcript:
             from transcribe_ibm import upload_audio_file, delete_uploaded_file
             size = 10
             if Path(filepath).stat().st_size >= 1073741824:
-                extension = Path(original_file).suffix[1:]
-                sound = AudioSegment.from_file(original_file, extension)
+                extension = Path(filepath).suffix[1:]
+                sound = AudioSegment.from_file(filepath, extension)
                 sound = sound.set_channels(1)
                 Path('./audio/').mkdir(parents=True, exist_ok=True)
                 filepath = f"./audio/{uuid.uuid4()}.mp3"
@@ -81,7 +105,7 @@ class Transcript:
         identifier = upload_audio_file(filepath=filepath, service_config=self.config[service])
         try:
             parameters = f"{self.bucket} {identifier} {language} {speaker} {speaker_type} " \
-                         f"{performance_date} {part} {project} {service}"
+                         f"{performance_date} {part} {timeframe} {section} {project} {service}"
             instantiate_ec2(ami=self.config['aws']['ami'],
                             key_name=self.config['aws']['key_name'],
                             security_group=self.config['aws']['security_group'],
@@ -90,111 +114,181 @@ class Transcript:
                             instance_type=self.instance_type,
                             size=size,
                             init_script="https://raw.githubusercontent.com/alexgonca/transcript_interview/main/init_server.sh",
-                            name=f"{speaker}_{service}_{speaker_type}_{part}")
+                            name=f"{speaker}_{part}_{service}_{speaker_type}_{section}")
         except:
             delete_uploaded_file(identifier=identifier, service_config=self.config[service])
             raise
 
-    def retrieve_transcript(self, project, speaker, performance_date, part=1, language=None,
+    def retrieve_transcript(self, project, speaker, performance_date, part=1, timeframe=3, language=None,
                             both=None, single=None, interviewee=None, interviewer=None,
                             microsoft=False, ibm=False, aws=False, google=False):
         if single is not None:
             self.inner_retrieve_transcript(project=project, speaker=speaker, performance_date=performance_date,
-                                           speaker_type='single', part=part, language=language, filepath=single,
+                                           speaker_type='single', part=part, timeframe=timeframe,
+                                           language=language, filepath=single,
                                            microsoft=microsoft, ibm=ibm, aws=aws, google=google)
         if both is not None:
             self.inner_retrieve_transcript(project=project, speaker=speaker, performance_date=performance_date,
-                                           speaker_type='both', part=part, language=language, filepath=both,
+                                           speaker_type='both', part=part, timeframe=timeframe,
+                                           language=language, filepath=both,
                                            microsoft=microsoft, ibm=ibm, aws=aws, google=google)
         if interviewee is not None:
             self.inner_retrieve_transcript(project=project, speaker=speaker, performance_date=performance_date,
-                                           speaker_type='interviewee', part=part, language=language, filepath=interviewee,
+                                           speaker_type='interviewee', part=part, timeframe=timeframe,
+                                           language=language, filepath=interviewee,
                                            microsoft=microsoft, ibm=ibm, aws=aws, google=google)
         if interviewer is not None:
             self.inner_retrieve_transcript(project=project, speaker=speaker, performance_date=performance_date,
-                                           speaker_type='interviewer', part=part, language=language, filepath=interviewer,
+                                           speaker_type='interviewer', part=part, timeframe=timeframe,
+                                           language=language, filepath=interviewer,
                                            microsoft=microsoft, ibm=ibm, aws=aws, google=google)
 
-    def inner_retrieve_transcript(self, project, speaker, performance_date,
-                                  speaker_type, part=1, language=None, filepath=None,
-                                  microsoft=False, ibm=False, aws=False, google=False):
-        retrieved = {
-            'microsoft': False,
-            'google': False,
-            'aws': False,
-            'ibm': False
-        }
-        if microsoft:
-            retrieved['microsoft'] = s3_key_exists(self.bucket,
-                                                   f'transcript/service=microsoft/project={project}/speaker={speaker}/'
-                                                   f'performance_date={performance_date}/part={part}/speaker_type={speaker_type}/transcript.json.bz2')
-        if google:
-            retrieved['google'] = s3_key_exists(self.bucket,
-                                                f'transcript/service=google/project={project}/speaker={speaker}/'
-                                                f'performance_date={performance_date}/part={part}/speaker_type={speaker_type}/transcript.json.bz2')
-        if aws:
-            retrieved['aws'] = s3_key_exists(self.bucket,
-                                             f'transcript/service=aws/project={project}/speaker={speaker}/'
-                                             f'performance_date={performance_date}/part={part}/speaker_type={speaker_type}/transcript.json.bz2')
-        if ibm:
-            retrieved['ibm'] = s3_key_exists(self.bucket,
-                                             f'transcript/service=ibm/project={project}/speaker={speaker}/'
-                                             f'performance_date={performance_date}/part={part}/speaker_type={speaker_type}/transcript.json.bz2')
+    def delete_different_timeframe(self, service, project, speaker, performance_date, speaker_type, part, timeframe):
+        prefix = f"transcript/service={service}/project={project}/speaker={speaker}/" \
+                 f"performance_date={performance_date}/part={part}/speaker_type={speaker_type}/"
+        if s3_prefix_exists(bucket=self.bucket, prefix=prefix):
+            if not s3_prefix_exists(bucket=self.bucket, prefix=f"{prefix}timeframe={timeframe}/"):
+                delete_s3_objects_by_prefix(bucket=self.bucket, prefix=prefix)
+                self.repair_metadata = True
 
-        destination = ""
-        created_audio = False
-        if (microsoft and not retrieved["microsoft"]) or (google and not retrieved["google"]) or \
-                (aws and not retrieved["aws"]) or (ibm and not retrieved["ibm"]):
-            extension = Path(filepath).suffix[1:]
-            sound = AudioSegment.from_file(filepath, extension)
-            sound = sound.set_channels(1)
+    def inner_retrieve_transcript(self, project, speaker, performance_date,
+                                  speaker_type, part, timeframe, language, filepath,
+                                  microsoft, ibm, aws, google):
+        athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
+
+        # TODO: update internet_scholar github
+        # delete existing sections
+        if microsoft:
+            self.delete_different_timeframe(service='microsoft', project=project, speaker=speaker,
+                                            performance_date=performance_date, speaker_type=speaker_type, part=part,
+                                            timeframe=timeframe)
+        if google:
+            self.delete_different_timeframe(service='google', project=project, speaker=speaker,
+                                            performance_date=performance_date, speaker_type=speaker_type, part=part,
+                                            timeframe=timeframe)
+        if ibm:
+            self.delete_different_timeframe(service='ibm', project=project, speaker=speaker,
+                                            performance_date=performance_date, speaker_type=speaker_type, part=part,
+                                            timeframe=timeframe)
+        if aws:
+            self.delete_different_timeframe(service='aws', project=project, speaker=speaker,
+                                            performance_date=performance_date, speaker_type=speaker_type, part=part,
+                                            timeframe=timeframe)
+        if self.repair_metadata:
+            athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE metadata")
+            self.repair_metadata = False
+
+        # create audio object and slice it according to timeframe (in hours)
+        extension = Path(filepath).suffix[1:]
+        sound = AudioSegment.from_file(filepath, extension)
+        sound = sound.set_channels(1)
+        if (timeframe * 60 * 60) > 13200.0:  # more than 3 hours and 40 minutes
+            self.instance_type = 't3a.micro'
+        chunk_length_ms = timeframe * 60 * 60 * 1000  # pydub calculates in millisec
+        chunks = make_chunks(sound, chunk_length_ms)  # Make chunks of ten seconds
+
+        # determine list of jobs that need to be performed
+        jobs = list()
+        for i in range(1, len(chunks)+1):
+            if microsoft:
+                jobs.append(
+                    {
+                        'project': project,
+                        'speaker': speaker,
+                        'performance_date': performance_date,
+                        'speaker_type': speaker_type,
+                        'part': part,
+                        'timeframe': timeframe,
+                        'section': i,
+                        'service': 'microsoft'
+                    }
+                )
+            if ibm:
+                jobs.append(
+                    {
+                        'project': project,
+                        'speaker': speaker,
+                        'performance_date': performance_date,
+                        'speaker_type': speaker_type,
+                        'part': part,
+                        'timeframe': timeframe,
+                        'section': i,
+                        'service': 'ibm'
+                    }
+                )
+            if aws:
+                jobs.append(
+                    {
+                        'project': project,
+                        'speaker': speaker,
+                        'performance_date': performance_date,
+                        'speaker_type': speaker_type,
+                        'part': part,
+                        'timeframe': timeframe,
+                        'section': i,
+                        'service': 'aws'
+                    }
+                )
+            if google:
+                jobs.append(
+                    {
+                        'project': project,
+                        'speaker': speaker,
+                        'performance_date': performance_date,
+                        'speaker_type': speaker_type,
+                        'part': part,
+                        'timeframe': timeframe,
+                        'section': i,
+                        'service': 'google'
+                    }
+                )
+        jobs_values = ""
+        for i in range(len(jobs)):
+            jobs_values = f"({jobs[i]['service']},{jobs[i]['project']},{jobs[i]['speaker']}," \
+                          f"{jobs[i]['performance_date']},{jobs[i]['part']},{jobs[i]['speaker_type']}," \
+                          f"{jobs[i]['timeframe']},{jobs[i]['section']}),{jobs_values}"
+        jobs_values = jobs_values[:-1] # eliminate the final comma
+        jobs_athena = athena_db.query_athena_and_download(query_string=SELECT_JOBS.format(jobs_values=jobs_values),
+                                                          filename='jobs.csv')
+        with open(jobs_athena) as jobs_file:
+            jobs_reader = csv.DictReader(jobs_file)
+            jobs = list()
+            for row in jobs_reader:
+                jobs.append({
+                    'service': row['service'],
+                    'project': row['project'],
+                    'speaker': row['speaker'],
+                    'performance_date': row['performance_date'],
+                    'part': row['part'],
+                    'speaker_type': row['speaker_type'],
+                    'timeframe': row['timeframe'],
+                    'section': row['section']
+                })
+
+        if len(jobs) > 0:
+            created_audio = False
             Path('./audio/').mkdir(parents=True, exist_ok=True)
-            destination = f"./audio/{uuid.uuid4()}.wav"
-            sound.export(destination, format="wav", parameters=['-acodec', 'pcm_s16le'])
-            created_audio = True
-            if sound.duration_seconds > 13200.0:    # more than 3 hours and 40 minutes
-                self.instance_type = 't3a.micro'
-        try:
-            if microsoft and not retrieved['microsoft']:
-                self.instantiate_cloud_transcriber(service="microsoft",
-                                                   project=project,
-                                                   performance_date=performance_date,
-                                                   part=part,
-                                                   language=language,
-                                                   speaker=speaker,
-                                                   speaker_type=speaker_type,
-                                                   filepath=destination)
-            if google and not retrieved['google']:
-                self.instantiate_cloud_transcriber(service="google",
-                                                   project=project,
-                                                   performance_date=performance_date,
-                                                   part=part,
-                                                   language=language,
-                                                   speaker=speaker,
-                                                   speaker_type=speaker_type,
-                                                   filepath=destination)
-            if ibm and not retrieved['ibm']:
-                self.instantiate_cloud_transcriber(service="ibm",
-                                                   project=project,
-                                                   performance_date=performance_date,
-                                                   part=part,
-                                                   language=language,
-                                                   speaker=speaker,
-                                                   speaker_type=speaker_type,
-                                                   filepath=destination,
-                                                   original_file=filepath)
-            if aws and not retrieved['aws']:
-                self.instantiate_cloud_transcriber(service="aws",
-                                                   project=project,
-                                                   performance_date=performance_date,
-                                                   part=part,
-                                                   language=language,
-                                                   speaker=speaker,
-                                                   speaker_type=speaker_type,
-                                                   filepath=destination)
-        finally:
-            if created_audio:
-                shutil.rmtree("./audio")
+            destination = list()
+            try:
+                for i, chunk in enumerate(chunks):
+                    temp_sound_file = f"./audio/{uuid.uuid4()}.wav"
+                    chunk.export(temp_sound_file, format="wav", parameters=['-acodec', 'pcm_s16le'])
+                    created_audio = True
+                    destination.append(temp_sound_file)
+                for job in jobs:
+                    self.instantiate_cloud_transcriber(service=job['service'],
+                                                       project=job['project'],
+                                                       performance_date=job['performance_date'],
+                                                       part=job['part'],
+                                                       timeframe=job['timeframe'],
+                                                       section=job['section'],
+                                                       language=language,
+                                                       speaker=job['speaker'],
+                                                       speaker_type=job['speaker_type'],
+                                                       filepath=destination[job['section']-1]) # destination is zero-based
+            finally:
+                if created_audio:
+                    shutil.rmtree("./audio")
 
     def get_where_clause(self, project=None, speaker=None, performance_date=None):
         where_clause = ""
@@ -208,10 +302,8 @@ class Transcript:
             where_clause = f"where {where_clause[4:]}"
         return where_clause
 
-    def add_part_to_s3_path(self):
+    def add_timeframe_section_to_s3_path(self):
         athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
-        #athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE metadata")
-        #athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE word")
 
         metadata_records = athena_db.query_athena_and_download(query_string="select distinct service, project, "
                                                                             "speaker, performance_date, speaker_type "
@@ -222,26 +314,28 @@ class Transcript:
         with open(metadata_records) as metadata_file:
             metadata_reader = csv.DictReader(metadata_file)
             for row in metadata_reader:
+                print(f"{row['service']}/{row['project']}/{row['speaker']}/{row['performance_date']}/{row['speaker_type']}")
                 move_data_in_s3(
                     bucket_name=self.bucket,
-                    origin=f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/speaker_type={row['speaker_type']}/transcript.json.bz2",
-                    destination=f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/speaker_type={row['speaker_type']}/transcript.json.bz2"
+                    origin=f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/timeframe=4/timesection=1/speaker_type={row['speaker_type']}/transcript.json.bz2",
+                    destination=f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/speaker_type={row['speaker_type']}/timeframe=4/section=1/transcript.json.bz2"
                 )
 
-        words_records = athena_db.query_athena_and_download(query_string="select distinct project, speaker, "
-                                                                         "performance_date, service, protagonist "
-                                                                         "from word "
-                                                                         "order by project, speaker, performance_date, "
-                                                                         "service, protagonist",
-                                                            filename='words_records.csv')
-        with open(words_records) as words_file:
-            words_reader = csv.DictReader(words_file)
-            for row in words_reader:
-                move_data_in_s3(
-                    bucket_name=self.bucket,
-                    origin=f"word/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/service={row['service']}/protagonist={row['protagonist']}/word.json.bz2",
-                    destination=f"word/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/service={row['service']}/protagonist={row['protagonist']}/word.json.bz2"
-                )
+        # athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE word")
+        # words_records = athena_db.query_athena_and_download(query_string="select distinct project, speaker, "
+        #                                                                  "performance_date, service, protagonist "
+        #                                                                  "from word "
+        #                                                                  "order by project, speaker, performance_date, "
+        #                                                                  "service, protagonist",
+        #                                                     filename='words_records.csv')
+        # with open(words_records) as words_file:
+        #     words_reader = csv.DictReader(words_file)
+        #     for row in words_reader:
+        #         move_data_in_s3(
+        #             bucket_name=self.bucket,
+        #             origin=f"word/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/service={row['service']}/protagonist={row['protagonist']}/word.json.bz2",
+        #             destination=f"word/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/service={row['service']}/protagonist={row['protagonist']}/word.json.bz2"
+        #         )
 
     def parse_words(self, project=None, speaker=None, performance_date=None):
         athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
