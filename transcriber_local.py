@@ -156,7 +156,6 @@ class Transcript:
                                   microsoft, ibm, aws, google):
         athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
 
-        # TODO: update internet_scholar github
         # delete existing sections
         if microsoft:
             self.delete_different_timeframe(service='microsoft', project=project, speaker=speaker,
