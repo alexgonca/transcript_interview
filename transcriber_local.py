@@ -52,9 +52,9 @@ order by project, speaker, service, speaker_type"""
 SELECT_JOBS = """with job as (
     select *
     from (values {jobs_values}) 
-    AS t(service, project, speaker, performance_date, speaker_type, part, speaker_type, timeframe, section)
+    AS t(service, project, speaker, performance_date, part, speaker_type, timeframe, section)
 )
-select service, project, speaker, performance_date, speaker_type, part, speaker_type, timeframe, section
+select service, project, speaker, performance_date, part, speaker_type, timeframe, section
 from job
 where not exists (
     select *
@@ -243,8 +243,8 @@ class Transcript:
                 )
         jobs_values = ""
         for i in range(len(jobs)):
-            jobs_values = f"({jobs[i]['service']},{jobs[i]['project']},{jobs[i]['speaker']}," \
-                          f"{jobs[i]['performance_date']},{jobs[i]['part']},{jobs[i]['speaker_type']}," \
+            jobs_values = f"('{jobs[i]['service']}','{jobs[i]['project']}','{jobs[i]['speaker']}'," \
+                          f"'{jobs[i]['performance_date']}',{jobs[i]['part']},'{jobs[i]['speaker_type']}'," \
                           f"{jobs[i]['timeframe']},{jobs[i]['section']}),{jobs_values}"
         jobs_values = jobs_values[:-1] # eliminate the final comma
         jobs_athena = athena_db.query_athena_and_download(query_string=SELECT_JOBS.format(jobs_values=jobs_values),
@@ -264,16 +264,19 @@ class Transcript:
                     'section': row['section']
                 })
 
+        # export audio e instantiate cloud transcribers
         if len(jobs) > 0:
             created_audio = False
             Path('./audio/').mkdir(parents=True, exist_ok=True)
             destination = list()
             try:
+                # export audio
                 for i, chunk in enumerate(chunks):
                     temp_sound_file = f"./audio/{uuid.uuid4()}.wav"
                     chunk.export(temp_sound_file, format="wav", parameters=['-acodec', 'pcm_s16le'])
                     created_audio = True
                     destination.append(temp_sound_file)
+                # instantiate cloud transcribers
                 for job in jobs:
                     self.instantiate_cloud_transcriber(service=job['service'],
                                                        project=job['project'],
@@ -284,7 +287,7 @@ class Transcript:
                                                        language=language,
                                                        speaker=job['speaker'],
                                                        speaker_type=job['speaker_type'],
-                                                       filepath=destination[job['section']-1]) # destination is zero-based
+                                                       filepath=destination[int(job['section'])-1]) # destination is zero-based
             finally:
                 if created_audio:
                     shutil.rmtree("./audio")
