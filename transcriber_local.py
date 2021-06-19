@@ -386,6 +386,7 @@ class Transcript:
                     partitions['project'] = row['project']
                     partitions['speaker'] = row['speaker']
                     partitions['performance_date'] = row['performance_date']
+                    partitions['part'] = row['part']
                     partitions['service'] = row['service']
                     partitions['protagonist'] = -1
                     partitions['timeframe'] = row['timeframe']
