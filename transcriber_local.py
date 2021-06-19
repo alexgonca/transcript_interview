@@ -11,7 +11,7 @@ import os
 
 SELECT_TRANSCRIPT = """with updated_word as
 (select
-       start_time / ({interval_in_seconds} * 1000) as time_frame,
+       ( start_time + ( (section-1)*timeframe*60*60*1000 ) ) / ({interval_in_seconds} * 1000) as time_slot,
        if(protagonist='1', word, upper(word)) as word,
        start_time,
        end_time,
@@ -20,23 +20,24 @@ from transcriptions.word
 where
       project = '{project}' and
       speaker = '{speaker}' and
-      performance_date = '{performance_date}'
-order by start_time, seq_num)
+      performance_date = '{performance_date}' and 
+      part = {part}
+order by section, start_time, seq_num)
 select
-    time '00:00:00' + time_frame * {interval_in_seconds} * interval '1' second as time_frame,
+    time '00:00:00' + time_slot * {interval_in_seconds} * interval '1' second as time_slot,
     array_join(array_remove(array_agg(if(service='microsoft', word, '')), ''), ' ') as microsoft,
     array_join(array_remove(array_agg(if(service='google', word, '')), ''), ' ') as google,
     array_join(array_remove(array_agg(if(service='aws', word, '')), ''), ' ') as aws,
     array_join(array_remove(array_agg(if(service='ibm', word, '')), ''), ' ') as ibm,
     '' as comments
 from updated_word
-group by time_frame
-order by time_frame"""
+group by time_slot
+order by time_slot"""
 
-SELECT_ALL_TRANSCRIPTS = """select distinct project, speaker, performance_date
-from word {where_clause} order by project, speaker, performance_date"""
+SELECT_ALL_TRANSCRIPTS = """select distinct project, speaker, performance_date, part
+from word {where_clause} order by project, speaker, performance_date, part"""
 
-SELECT_NON_PARSED_TRANSCRIPTS = """select distinct project, speaker, performance_date, speaker_type, service
+SELECT_NON_PARSED_TRANSCRIPTS = """select distinct project, speaker, performance_date, part, speaker_type, timeframe, section, service
 from metadata
 {where_clause}
     and not exists(
@@ -45,8 +46,11 @@ from metadata
           where word.project = metadata.project and
                 word.speaker = metadata.speaker and
                 word.performance_date = metadata.performance_date and
+                word.part = metadata.part and
                 word.protagonist = if(metadata.speaker_type='interviewer', '0', '1') and 
-                word.service = metadata.service)
+                word.service = metadata.service and 
+                word.timeframe = metadata.timeframe and
+                word.section = metadata.section)
 order by project, speaker, service, speaker_type"""
 
 SELECT_JOBS = """with job as (
@@ -149,6 +153,13 @@ class Transcript:
         if s3_prefix_exists(bucket=self.bucket, prefix=prefix):
             if not s3_prefix_exists(bucket=self.bucket, prefix=f"{prefix}timeframe={timeframe}/"):
                 delete_s3_objects_by_prefix(bucket=self.bucket, prefix=prefix)
+                prefix_word = f"word/project={project}/speaker={speaker}/performance_date={performance_date}/" \
+                              f"part={part}/service={service}/"
+                if speaker_type in ('interviewee', 'single'):
+                    prefix_word = f"{prefix_word}protagonist=1/"
+                elif speaker_type == 'interviewer':
+                    prefix_word = f"{prefix_word}protagonist=0/"
+                delete_s3_objects_by_prefix(bucket=self.bucket, prefix=prefix_word)
                 self.repair_metadata = True
 
     def inner_retrieve_transcript(self, project, speaker, performance_date,
@@ -292,7 +303,7 @@ class Transcript:
                 if created_audio:
                     shutil.rmtree("./audio")
 
-    def get_where_clause(self, project=None, speaker=None, performance_date=None):
+    def get_where_clause(self, project=None, speaker=None, performance_date=None, part=None):
         where_clause = ""
         if project is not None:
             where_clause = f"AND project = '{project}' "
@@ -300,6 +311,8 @@ class Transcript:
             where_clause = f"{where_clause}AND speaker = '{speaker}' "
         if performance_date is not None:
             where_clause = f"{where_clause}AND performance_date = '{performance_date}' "
+        if part is not None:
+            where_clause = f"{where_clause}AND part = '{part}' "
         if where_clause != '':
             where_clause = f"where {where_clause[4:]}"
         return where_clause
@@ -307,44 +320,46 @@ class Transcript:
     def add_timeframe_section_to_s3_path(self):
         athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
 
-        metadata_records = athena_db.query_athena_and_download(query_string="select distinct service, project, "
-                                                                            "speaker, performance_date, speaker_type "
-                                                                            "from metadata "
-                                                                            "order by service, project, speaker, "
-                                                                            "performance_date, speaker_type",
-                                                               filename='metadata_records.csv')
-        with open(metadata_records) as metadata_file:
-            metadata_reader = csv.DictReader(metadata_file)
-            for row in metadata_reader:
-                print(f"{row['service']}/{row['project']}/{row['speaker']}/{row['performance_date']}/{row['speaker_type']}")
-                move_data_in_s3(
-                    bucket_name=self.bucket,
-                    origin=f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/timeframe=4/timesection=1/speaker_type={row['speaker_type']}/transcript.json.bz2",
-                    destination=f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/speaker_type={row['speaker_type']}/timeframe=4/section=1/transcript.json.bz2"
-                )
-
-        # athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE word")
-        # words_records = athena_db.query_athena_and_download(query_string="select distinct project, speaker, "
-        #                                                                  "performance_date, service, protagonist "
-        #                                                                  "from word "
-        #                                                                  "order by project, speaker, performance_date, "
-        #                                                                  "service, protagonist",
-        #                                                     filename='words_records.csv')
-        # with open(words_records) as words_file:
-        #     words_reader = csv.DictReader(words_file)
-        #     for row in words_reader:
+        # metadata_records = athena_db.query_athena_and_download(query_string="select distinct service, project, "
+        #                                                                     "speaker, performance_date, speaker_type "
+        #                                                                     "from metadata "
+        #                                                                     "order by service, project, speaker, "
+        #                                                                     "performance_date, speaker_type",
+        #                                                        filename='metadata_records.csv')
+        # with open(metadata_records) as metadata_file:
+        #     metadata_reader = csv.DictReader(metadata_file)
+        #     for row in metadata_reader:
+        #         print(f"{row['service']}/{row['project']}/{row['speaker']}/{row['performance_date']}/{row['speaker_type']}")
         #         move_data_in_s3(
         #             bucket_name=self.bucket,
-        #             origin=f"word/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/service={row['service']}/protagonist={row['protagonist']}/word.json.bz2",
-        #             destination=f"word/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/service={row['service']}/protagonist={row['protagonist']}/word.json.bz2"
+        #             origin=f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/timeframe=4/timesection=1/speaker_type={row['speaker_type']}/transcript.json.bz2",
+        #             destination=f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/speaker_type={row['speaker_type']}/timeframe=4/section=1/transcript.json.bz2"
         #         )
 
-    def parse_words(self, project=None, speaker=None, performance_date=None):
+        athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE word")
+        words_records = athena_db.query_athena_and_download(query_string="select distinct project, speaker, "
+                                                                         "performance_date, service, protagonist "
+                                                                         "from word "
+                                                                         "order by project, speaker, performance_date, "
+                                                                         "service, protagonist",
+                                                            filename='words_records.csv')
+        with open(words_records) as words_file:
+            words_reader = csv.DictReader(words_file)
+            for row in words_reader:
+                move_data_in_s3(
+                    bucket_name=self.bucket,
+                    origin=f"word/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/service={row['service']}/protagonist={row['protagonist']}/word.json.bz2",
+                    destination=f"word/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/service={row['service']}/protagonist={row['protagonist']}/timeframe=4/section=1/word.json.bz2"
+                )
+
+    def parse_words(self, project=None, speaker=None, performance_date=None, part=None):
+        # TODO: check if there are files lost in space on Microsoft and AWS especially.
+        # TODO: see why it seems that the number of words on Athena is twice as it should be.
         athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
         athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE metadata")
         athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE word")
 
-        where_clause = self.get_where_clause(project=project, speaker=speaker, performance_date=performance_date)
+        where_clause = self.get_where_clause(project=project, speaker=speaker, performance_date=performance_date, part=part)
         if where_clause == '':
             select = SELECT_NON_PARSED_TRANSCRIPTS.format(where_clause=where_clause).replace(' and ', ' where ', 1).replace('\n\n','\n')
         else:
@@ -357,10 +372,12 @@ class Transcript:
             try:
                 print("Parse words...")
                 for row in reader:
-                    print(f"{row['speaker']}_{row['service']}_{row['speaker_type']}")
+                    print(f"{row['speaker']}_{row['performance_date']}_{row['part']}_{row['service']}_{row['speaker_type']}_{row['section']}")
                     transcript = read_dict_from_s3(self.bucket,
                                                    f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/"
-                                                   f"performance_date={row['performance_date']}/speaker_type={row['speaker_type']}/transcript.json.bz2",
+                                                   f"performance_date={row['performance_date']}/part={row['part']}/"
+                                                   f"speaker_type={row['speaker_type']}/timeframe={row['timeframe']}/"
+                                                   f"section={row['section']}/transcript.json.bz2",
                                                    compressed=True)
                     protagonist_words, non_protagonist_words = parse_words(transcript=transcript,
                                                                            speaker_type=row['speaker_type'],
@@ -370,6 +387,9 @@ class Transcript:
                     partitions['speaker'] = row['speaker']
                     partitions['performance_date'] = row['performance_date']
                     partitions['service'] = row['service']
+                    partitions['protagonist'] = -1
+                    partitions['timeframe'] = row['timeframe']
+                    partitions['section'] = row['section']
                     if len(protagonist_words) > 0:
                         partitions['protagonist'] = 1
                         save_data_in_s3(content=protagonist_words,
@@ -389,11 +409,11 @@ class Transcript:
                 if database_has_changed:
                     athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE word")
 
-    def export_csv(self, project=None, speaker=None, performance_date=None, interval_in_seconds=10):
-        self.parse_words(project=project, speaker=speaker, performance_date=performance_date)
+    def export_csv(self, project=None, speaker=None, performance_date=None, part=None, interval_in_seconds=10):
+        self.parse_words(project=project, speaker=speaker, performance_date=performance_date, part=part)
 
         athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
-        where_clause = self.get_where_clause(project=project, speaker=speaker, performance_date=performance_date)
+        where_clause = self.get_where_clause(project=project, speaker=speaker, performance_date=performance_date, part=part)
         tmp_file = athena_db.query_athena_and_download(
             query_string=SELECT_ALL_TRANSCRIPTS.format(where_clause=where_clause),
             filename='selected_transcripts.csv')
@@ -402,13 +422,14 @@ class Transcript:
             Path("./csv/").mkdir(parents=True, exist_ok=True)
             print("Export CSVs...")
             for row in reader:
-                print(f"{row['project']}_{row['speaker']}_{row['performance_date']}")
+                print(f"{row['project']}_{row['speaker']}_{row['performance_date']}_{row['part']}")
 
-                filename = f"{row['project']}_{row['speaker']}_{row['performance_date']}_{interval_in_seconds}.csv"
+                filename = f"{row['project']}_{row['speaker']}_{row['performance_date']}_{row['part']}_{interval_in_seconds}.csv"
                 new_file = athena_db.query_athena_and_download(SELECT_TRANSCRIPT.format(project=row['project'],
                                                                                         speaker=row['speaker'],
                                                                                         performance_date=row[
                                                                                             'performance_date'],
+                                                                                        part=row['part'],
                                                                                         interval_in_seconds=interval_in_seconds),
                                                                filename)
                 os.replace(new_file, f'./csv/{filename}')
