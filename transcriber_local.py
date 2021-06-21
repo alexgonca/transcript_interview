@@ -375,7 +375,6 @@ class Transcript:
         print("Done.")
 
     def parse_words(self, project=None, speaker=None, performance_date=None, part=None):
-        # TODO: check if there are files lost in space on Microsoft and AWS especially.
         self.repair_table_metadata()
         self.repair_table_word()
 
@@ -528,7 +527,7 @@ class Transcript:
                                                 'requests': {
                                                     "updateSheetProperties": {
                                                         "fields": "title,gridProperties.rowCount,gridProperties.columnCount,gridProperties.frozenRowCount",
-                                                        "properties": {"title": f"{parts_row['performance_date']}/{parts_row['part']}",
+                                                        "properties": {"title": f"{parts_row['performance_date']} / {parts_row['part']}",
                                                                        "gridProperties": {
                                                                            "rowCount": 3,
                                                                            "columnCount": 3,
@@ -548,7 +547,7 @@ class Transcript:
                                                 "requests": {
                                                     "addSheet": {
                                                         "properties": {
-                                                            "title": f"{parts_row['performance_date']}/{parts_row['part']}",
+                                                            "title": f"{parts_row['performance_date']} / {parts_row['part']}",
                                                             "gridProperties": {
                                                                 "rowCount": 3,
                                                                 "columnCount": 3,
