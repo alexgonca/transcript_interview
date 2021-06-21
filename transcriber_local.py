@@ -2,12 +2,15 @@ from pydub import AudioSegment
 from pydub.utils import make_chunks
 from pathlib import Path
 import shutil
+import json
 import uuid
 from internet_scholar import read_dict_from_s3, s3_prefix_exists, delete_s3_objects_by_prefix, save_data_in_s3, instantiate_ec2, AthenaDatabase, move_data_in_s3
 from collections import OrderedDict
 from transcriber_parser import parse_words
 import csv
 import os
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
 
 SELECT_TRANSCRIPT = """with updated_word as
 (select
@@ -34,8 +37,14 @@ from updated_word
 group by time_slot
 order by time_slot"""
 
-SELECT_ALL_TRANSCRIPTS = """select distinct project, speaker, performance_date, part
-from word {where_clause} order by project, speaker, performance_date, part"""
+SELECT_ALL_PARTS = """select distinct performance_date, part
+from word {where_clause} order by performance_date, part"""
+
+SELECT_ALL_SPEAKERS = """select distinct speaker
+from word {where_clause} order by speaker"""
+
+SELECT_ALL_PROJECTS = """select distinct project
+from word {where_clause} order by project"""
 
 SELECT_NON_PARSED_TRANSCRIPTS = """select distinct project, speaker, performance_date, part, speaker_type, timeframe, section, service
 from metadata
@@ -422,27 +431,203 @@ class Transcript:
                 if database_has_changed:
                     self.repair_table_word()
 
-    def export_csv(self, project=None, speaker=None, performance_date=None, part=None, interval_in_seconds=10):
-        self.parse_words(project=project, speaker=speaker, performance_date=performance_date, part=part)
+    def export_google_sheets(self, project=None, speaker=None, interval_in_seconds=10):
+        self.parse_words(project=project, speaker=speaker)
 
-        athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
-        where_clause = self.get_where_clause(project=project, speaker=speaker, performance_date=performance_date, part=part)
-        tmp_file = athena_db.query_athena_and_download(
-            query_string=SELECT_ALL_TRANSCRIPTS.format(where_clause=where_clause),
-            filename='selected_transcripts.csv')
-        with open(tmp_file) as csvfile:
-            reader = csv.DictReader(csvfile)
-            Path("./csv/").mkdir(parents=True, exist_ok=True)
-            print("Export CSVs...")
-            for row in reader:
-                print(f"{row['project']}_{row['speaker']}_{row['performance_date']}_{row['part']}")
+        Path("./csv/").mkdir(parents=True, exist_ok=True)
+        print("Export CSVs...")
+        try:
+            json_string = json.dumps(self.config['google'])
+            Path('./local_credentials/').mkdir(parents=True, exist_ok=True)
+            temp_file = f"./local_credentials/{uuid.uuid4()}.json"
+            with open(temp_file, 'w', encoding="utf-8") as json_file:
+                json_file.write(json_string)
+            try:
+                credentials_google_drive = service_account.Credentials.from_service_account_file(
+                    temp_file,
+                    scopes=['https://www.googleapis.com/auth/drive'])
+                credentials_google_sheets = service_account.Credentials.from_service_account_file(
+                    temp_file,
+                    scopes=['https://www.googleapis.com/auth/spreadsheets'])
+            finally:
+                shutil.rmtree('./local_credentials')
+            google_drive = build('drive', 'v3', credentials=credentials_google_drive)
+            google_sheets = build('sheets', 'v4', credentials=credentials_google_sheets)
 
-                filename = f"{row['project']}_{row['speaker']}_{row['performance_date']}_{row['part']}_{interval_in_seconds}.csv"
-                new_file = athena_db.query_athena_and_download(SELECT_TRANSCRIPT.format(project=row['project'],
-                                                                                        speaker=row['speaker'],
-                                                                                        performance_date=row[
-                                                                                            'performance_date'],
-                                                                                        part=row['part'],
-                                                                                        interval_in_seconds=interval_in_seconds),
-                                                               filename)
-                os.replace(new_file, f'./csv/{filename}')
+            athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
+
+            all_projects = athena_db.query_athena_and_download(
+                query_string=SELECT_ALL_PROJECTS.format(where_clause=self.get_where_clause(project=project, speaker=speaker)),
+                filename='selected_all_projects.csv')
+            with open(all_projects) as all_projects_csv:
+                projects_reader = csv.DictReader(all_projects_csv)
+                for projects_row in projects_reader:
+                    response_project = google_drive.files().list(
+                        q=f"mimeType='application/vnd.google-apps.folder' and "
+                          f"'{self.config['google']['transcription_folder']}' in parents and "
+                          f"name='{projects_row['project']}'",
+                        spaces='drive',
+                        fields='files(id, name)').execute()
+                    if len(response_project['files']) == 0:
+                        folder_metadata = {
+                            'name': projects_row['project'],
+                            'mimeType': 'application/vnd.google-apps.folder',
+                            'parents': [self.config['google']['transcription_folder'], ]
+                        }
+                        project_folder = google_drive.files().create(body=folder_metadata,
+                                                                     fields='id').execute()
+                        project_id = project_folder['id']
+                    elif len(response_project['files']) == 1:
+                        project_id = response_project['files'][0]['id']
+                    else:
+                        raise Exception("Error! Should not have more than 1 folder for this project!")
+
+                    all_speakers = athena_db.query_athena_and_download(
+                        query_string=SELECT_ALL_SPEAKERS.format(where_clause=self.get_where_clause(project=projects_row['project'], speaker=speaker)),
+                        filename='selected_all_speakers.csv')
+                    with open(all_speakers) as all_speakers_csv:
+                        speakers_reader = csv.DictReader(all_speakers_csv)
+                        for speakers_row in speakers_reader:
+                            response_spreadsheet = google_drive.files().list(
+                                q=f"mimeType='application/vnd.google-apps.spreadsheet' and '{project_id}' in parents and name='{speakers_row['speaker']}'",
+                                spaces='drive',
+                                fields='files(id, name)').execute()
+                            if len(response_spreadsheet['files']) == 1:
+                                print(f"Spreadsheet for {speakers_row['speaker']} already exists. I will not overwrite.")
+                            elif len(response_spreadsheet['files']) >= 2:
+                                raise Exception("Error! Should not have more than 1 spreadsheet for this project!")
+                            else:  # it is 0
+                                body = {
+                                    'mimeType': 'application/vnd.google-apps.spreadsheet',
+                                    'name': speakers_row['speaker'],
+                                    'parents': [project_id, ]
+                                }
+                                speaker = google_drive.files().create(body=body, fields='id').execute()
+                                speaker_id = speaker['id']
+                                all_parts = athena_db.query_athena_and_download(
+                                    query_string=SELECT_ALL_PARTS.format(
+                                        where_clause=self.get_where_clause(project=projects_row['project'], speaker=speakers_row['speaker'])),
+                                    filename='selected_all_parts.csv')
+                                with open(all_parts) as all_parts_csv:
+                                    parts_reader = csv.DictReader(all_parts_csv)
+                                    first_sheet = True
+                                    for parts_row in parts_reader:
+                                        filename = f"{projects_row['project']}_{speakers_row['speaker']}_" \
+                                                   f"{parts_row['performance_date']}_{parts_row['part']}_{interval_in_seconds}.csv"
+                                        print(filename)
+                                        new_file = athena_db.query_athena_and_download(SELECT_TRANSCRIPT.format(project=projects_row['project'],
+                                                                                                                speaker=speakers_row['speaker'],
+                                                                                                                performance_date=parts_row[
+                                                                                                                    'performance_date'],
+                                                                                                                part=parts_row['part'],
+                                                                                                                interval_in_seconds=interval_in_seconds),
+                                                                                       filename)
+                                        os.replace(new_file, f'./csv/{filename}')
+                                        if first_sheet:
+                                            body = {
+                                                'requests': {
+                                                    "updateSheetProperties": {
+                                                        "fields": "title,gridProperties.rowCount,gridProperties.columnCount,gridProperties.frozenRowCount",
+                                                        "properties": {"title": "2020-04-12",
+                                                                       "gridProperties": {
+                                                                           "rowCount": 3,
+                                                                           "columnCount": 3,
+                                                                           "frozenRowCount": 1
+                                                                       },
+                                                                       "index": 0}
+                                                    }
+                                                },
+                                                'includeSpreadsheetInResponse': True
+                                            }
+                                            response = google_sheets.spreadsheets().batchUpdate(spreadsheetId=speaker_id,
+                                                                                                body=body).execute()
+                                            sheet_id = response['updatedSpreadsheet']['sheets'][0]['properties']['sheetId']
+                                            first_sheet = False
+                                        else:
+                                            body = {
+                                                "requests": {
+                                                    "addSheet": {
+                                                        "properties": {
+                                                            "title": "2020-04-13",
+                                                            "gridProperties": {
+                                                                "rowCount": 3,
+                                                                "columnCount": 3,
+                                                                "frozenRowCount": 1
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            response = google_sheets.spreadsheets().batchUpdate(spreadsheetId=speaker_id,
+                                                                                                body=body).execute()
+                                            sheet_id = response['replies'][0]['addSheet']['properties']['sheetId']
+                                        with open(f'./csv/{filename}', 'r', encoding="utf-8") as csv_file:
+                                            csvContents = csv_file.read()
+                                        body = {
+                                            'requests': [{
+                                                'pasteData': {
+                                                    "coordinate": {
+                                                        "sheetId": sheet_id,
+                                                        "rowIndex": "0",  # adapt this if you need different positioning
+                                                        "columnIndex": "0",  # adapt this if you need different positioning
+                                                    },
+                                                    "data": csvContents,
+                                                    "type": 'PASTE_NORMAL',
+                                                    "delimiter": ',',
+                                                }
+                                            }]
+                                        }
+                                        response = google_sheets.spreadsheets().batchUpdate(spreadsheetId=speaker_id,
+                                                                                            body=body).execute()
+                                        body = {
+                                            "requests": [
+                                                {
+                                                    "repeatCell": {
+                                                        "range": {
+                                                            "sheetId": sheet_id,
+                                                            "startRowIndex": 0,
+                                                            "startColumnIndex": 0
+                                                        },
+                                                        "cell":
+                                                            {
+                                                                "userEnteredFormat": {
+                                                                    "verticalAlignment": "TOP",
+                                                                    "wrapStrategy": "WRAP"
+                                                                },
+                                                            },
+                                                        "fields": "userEnteredFormat.wrapStrategy,userEnteredFormat.verticalAlignment"
+                                                    }
+                                                },
+                                                {
+                                                    "updateDimensionProperties": {
+                                                        "range": {
+                                                            "sheetId": sheet_id,
+                                                            "dimension": "COLUMNS",
+                                                            "startIndex": 0,
+                                                            "endIndex": 1
+                                                        },
+                                                        "properties": {
+                                                            "pixelSize": 60
+                                                        },
+                                                        "fields": "pixelSize"
+                                                    }
+                                                },
+                                                {
+                                                    "updateDimensionProperties": {
+                                                        "range": {
+                                                            "sheetId": sheet_id,
+                                                            "dimension": "COLUMNS",
+                                                            "startIndex": 1
+                                                        },
+                                                        "properties": {
+                                                            "pixelSize": 280
+                                                        },
+                                                        "fields": "pixelSize"
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                        response = google_sheets.spreadsheets().batchUpdate(spreadsheetId=speaker_id,
+                                                                                            body=body).execute()
+        finally:
+            shutil.rmtree('./csv')
