@@ -528,7 +528,7 @@ class Transcript:
                                                 'requests': {
                                                     "updateSheetProperties": {
                                                         "fields": "title,gridProperties.rowCount,gridProperties.columnCount,gridProperties.frozenRowCount",
-                                                        "properties": {"title": "2020-04-12",
+                                                        "properties": {"title": f"{parts_row['performance_date']}/{parts_row['part']}",
                                                                        "gridProperties": {
                                                                            "rowCount": 3,
                                                                            "columnCount": 3,
@@ -548,7 +548,7 @@ class Transcript:
                                                 "requests": {
                                                     "addSheet": {
                                                         "properties": {
-                                                            "title": "2020-04-13",
+                                                            "title": f"{parts_row['performance_date']}/{parts_row['part']}",
                                                             "gridProperties": {
                                                                 "rowCount": 3,
                                                                 "columnCount": 3,
