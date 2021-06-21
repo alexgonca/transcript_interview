@@ -501,8 +501,8 @@ class Transcript:
                                     'name': speakers_row['speaker'],
                                     'parents': [project_id, ]
                                 }
-                                speaker = google_drive.files().create(body=body, fields='id').execute()
-                                speaker_id = speaker['id']
+                                response = google_drive.files().create(body=body, fields='id').execute()
+                                speaker_id = response['id']
                                 all_parts = athena_db.query_athena_and_download(
                                     query_string=SELECT_ALL_PARTS.format(
                                         where_clause=self.get_where_clause(project=projects_row['project'], speaker=speakers_row['speaker'])),
