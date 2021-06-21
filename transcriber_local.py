@@ -185,8 +185,7 @@ class Transcript:
                                             performance_date=performance_date, speaker_type=speaker_type, part=part,
                                             timeframe=timeframe)
         if self.repair_metadata:
-            athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE metadata")
-            self.repair_metadata = False
+            self.repair_table_metadata()
 
         # create audio object and slice it according to timeframe (in hours)
         extension = Path(filepath).suffix[1:]
@@ -320,6 +319,7 @@ class Transcript:
     def add_timeframe_section_to_s3_path(self):
         athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
 
+        # self.repair_table_metadata()
         # metadata_records = athena_db.query_athena_and_download(query_string="select distinct service, project, "
         #                                                                     "speaker, performance_date, speaker_type "
         #                                                                     "from metadata "
@@ -336,7 +336,7 @@ class Transcript:
         #             destination=f"transcript/service={row['service']}/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/speaker_type={row['speaker_type']}/timeframe=4/section=1/transcript.json.bz2"
         #         )
 
-        athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE word")
+        self.repair_table_word()
         words_records = athena_db.query_athena_and_download(query_string="select distinct project, speaker, "
                                                                          "performance_date, service, protagonist "
                                                                          "from word "
@@ -352,18 +352,30 @@ class Transcript:
                     destination=f"word/project={row['project']}/speaker={row['speaker']}/performance_date={row['performance_date']}/part=1/service={row['service']}/protagonist={row['protagonist']}/timeframe=4/section=1/word.json.bz2"
                 )
 
-    def parse_words(self, project=None, speaker=None, performance_date=None, part=None):
-        # TODO: check if there are files lost in space on Microsoft and AWS especially.
-        # TODO: see why it seems that the number of words on Athena is twice as it should be.
+    def repair_table_metadata(self):
+        print("Going to repair table metadata...")
         athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
         athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE metadata")
+        self.repair_metadata = False
+        print("Done.")
+
+    def repair_table_word(self):
+        print("Going to repair table word...")
+        athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
         athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE word")
+        print("Done.")
+
+    def parse_words(self, project=None, speaker=None, performance_date=None, part=None):
+        # TODO: check if there are files lost in space on Microsoft and AWS especially.
+        self.repair_table_metadata()
+        self.repair_table_word()
 
         where_clause = self.get_where_clause(project=project, speaker=speaker, performance_date=performance_date, part=part)
         if where_clause == '':
             select = SELECT_NON_PARSED_TRANSCRIPTS.format(where_clause=where_clause).replace(' and ', ' where ', 1).replace('\n\n','\n')
         else:
             select = SELECT_NON_PARSED_TRANSCRIPTS.format(where_clause=where_clause)
+        athena_db = AthenaDatabase(database=self.config['aws']['athena'], s3_output=self.bucket)
         unparsed_records = athena_db.query_athena_and_download(query_string=select,
                                                                filename='unparsed_records.csv')
         with open(unparsed_records) as unparsed_file:
@@ -408,7 +420,7 @@ class Transcript:
                         database_has_changed = True
             finally:
                 if database_has_changed:
-                    athena_db.query_athena_and_wait(query_string="MSCK REPAIR TABLE word")
+                    self.repair_table_word()
 
     def export_csv(self, project=None, speaker=None, performance_date=None, part=None, interval_in_seconds=10):
         self.parse_words(project=project, speaker=speaker, performance_date=performance_date, part=part)
