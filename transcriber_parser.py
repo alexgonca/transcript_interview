@@ -121,7 +121,8 @@ def parse_words_aws(transcript, speaker_type):
         diarization = {}
         for speaker_segment in transcript['results']['speaker_labels']['segments']:
             for item in speaker_segment['items']:
-                diarization[item['start_time']] = {}
+                if item['start_time'] not in diarization:
+                    diarization[item['start_time']] = {}
                 if item['speaker_label'] == 'spk_0':
                     diarization[item['start_time']][item['end_time']] = 0
                 else:
